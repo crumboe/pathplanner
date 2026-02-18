@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:multi_split_view/multi_split_view.dart';
+import 'package:pathplanner/auto/ghost_auto.dart';
 import 'package:pathplanner/path/constraints_zone.dart';
 import 'package:pathplanner/path/event_marker.dart';
 import 'package:pathplanner/path/path_constraints.dart';
@@ -36,6 +37,8 @@ class SplitPathEditor extends StatefulWidget {
   final bool hotReload;
   final bool simulate;
   final VoidCallback? onPathChanged;
+  final GhostAuto? ghostAuto;
+  final num ghostTimeOffset;
 
   const SplitPathEditor({
     required this.prefs,
@@ -46,6 +49,8 @@ class SplitPathEditor extends StatefulWidget {
     this.hotReload = false,
     this.simulate = false,
     this.onPathChanged,
+    this.ghostAuto,
+    this.ghostTimeOffset = 0,
     super.key,
   });
 
@@ -471,6 +476,8 @@ class _SplitPathEditorState extends State<SplitPathEditor>
                           animation: _previewController.view,
                           prefs: widget.prefs,
                           optimizedPath: _optimizedPath,
+                          ghostAuto: widget.ghostAuto,
+                          ghostTimeOffset: widget.ghostTimeOffset,
                         ),
                       ),
                     ),

@@ -44,7 +44,7 @@ class _PreviewSeekbarState extends State<PreviewSeekbar> {
                       if (widget.previewController.isAnimating) {
                         widget.previewController.stop();
                         widget.onPauseStateChanged?.call(true);
-                      } else {
+                      } else if (widget.previewController.duration != null) {
                         widget.previewController.repeat();
                         widget.onPauseStateChanged?.call(false);
                       }
@@ -64,9 +64,11 @@ class _PreviewSeekbarState extends State<PreviewSeekbar> {
                   onPressed: () {
                     setState(() {
                       widget.previewController.reset();
-                      widget.previewController
-                          .repeat(); // Start playing again after reset
-                      widget.onPauseStateChanged?.call(false);
+                      if (widget.previewController.duration != null) {
+                        widget.previewController
+                            .repeat(); // Start playing again after reset
+                        widget.onPauseStateChanged?.call(false);
+                      }
                     });
                   },
                   icon: const Icon(Icons.replay),

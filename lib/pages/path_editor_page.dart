@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:pathplanner/auto/ghost_auto.dart';
 import 'package:pathplanner/path/pathplanner_path.dart';
 import 'package:pathplanner/services/pplib_telemetry.dart';
 import 'package:pathplanner/widgets/conditional_widget.dart';
@@ -21,6 +22,8 @@ class PathEditorPage extends StatefulWidget {
   final bool hotReload;
   final bool simulatePath;
   final VoidCallback? onPathChanged;
+  final GhostAuto? ghostAuto;
+  final num ghostTimeOffset;
 
   const PathEditorPage({
     super.key,
@@ -34,6 +37,8 @@ class PathEditorPage extends StatefulWidget {
     this.hotReload = false,
     this.simulatePath = false,
     this.onPathChanged,
+    this.ghostAuto,
+    this.ghostTimeOffset = 0,
   });
 
   @override
@@ -54,6 +59,8 @@ class _PathEditorPageState extends State<PathEditorPage> {
       hotReload: widget.hotReload,
       simulate: widget.simulatePath,
       onPathChanged: widget.onPathChanged,
+      ghostAuto: widget.ghostAuto,
+      ghostTimeOffset: widget.ghostTimeOffset,
     );
 
     return Scaffold(

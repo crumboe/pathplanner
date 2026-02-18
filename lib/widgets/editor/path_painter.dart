@@ -14,6 +14,7 @@ import 'package:pathplanner/path/waypoint.dart';
 import 'package:pathplanner/util/prefs.dart';
 import 'package:pathplanner/util/wpimath/geometry.dart';
 import 'package:pathplanner/widgets/field_image.dart';
+import 'package:pathplanner/auto/ghost_auto.dart';
 import 'package:pathplanner/util/path_painter_util.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -38,6 +39,8 @@ class PathPainter extends CustomPainter {
   final PathPlannerTrajectory? simulatedPath;
   final SharedPreferences prefs;
   final PathPlannerPath? optimizedPath;
+  final GhostAuto? ghostAuto;
+  final num ghostTimeOffset;
 
   late final RobotConfig robotConfig;
   late final num robotRadius;
@@ -68,6 +71,8 @@ class PathPainter extends CustomPainter {
     Animation<double>? animation,
     required this.prefs,
     this.optimizedPath,
+    this.ghostAuto,
+    this.ghostTimeOffset = 0,
   }) : super(repaint: animation) {
     robotConfig = RobotConfig.fromPrefs(prefs);
     robotRadius = sqrt((robotConfig.bumperSize.width *
@@ -89,6 +94,11 @@ class PathPainter extends CustomPainter {
           Tween<num>(begin: 0, end: simulatedPath!.states.last.timeSeconds)
               .animate(animation);
     }
+
+    // Ghost preview time is synced to the same wall-clock time as the main
+    // preview. We reuse previewTime (which maps to real seconds) and clamp
+    // to the ghost trajectory duration inside _paintGhostAuto.
+    // No separate ghostPreviewTime tween needed.
   }
 
   @override
@@ -187,6 +197,9 @@ class PathPainter extends CustomPainter {
     if (prefs.getBool(PrefsKeys.showStates) ?? Defaults.showStates) {
       _paintTrajectoryStates(simulatedPath, canvas);
     }
+
+    // Paint ghost auto (reference auto from another robot) behind the main preview
+    _paintGhostAuto(canvas, size);
 
     if (previewTime != null) {
       TrajectoryState state = simulatedPath!.sample(previewTime!.value);
@@ -297,6 +310,100 @@ class PathPainter extends CustomPainter {
     }
 
     canvas.drawPath(p, paint);
+  }
+
+  /// Paint the ghost auto trajectory line and ghost robot at the current preview time.
+  void _paintGhostAuto(Canvas canvas, Size size) {
+    if (ghostAuto == null || ghostAuto!.trajectory.states.isEmpty) return;
+
+    const Color ghostColor = Color(0xCCFF6EC7); // Bright pink, high opacity
+    const Color ghostPathColor = Color(0xAAFF6EC7);
+    const Color ghostOutlineColor = Color(0x66000000);
+
+    // Draw the ghost trajectory line
+    var pathPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..color = ghostPathColor
+      ..strokeWidth = 2;
+
+    Path p = Path();
+    Offset start = PathPainterUtil.pointToPixelOffset(
+        ghostAuto!.trajectory.states.first.pose.translation,
+        scale,
+        fieldImage);
+    p.moveTo(start.dx, start.dy);
+
+    for (int i = 1; i < ghostAuto!.trajectory.states.length; i++) {
+      Offset pos = PathPainterUtil.pointToPixelOffset(
+          ghostAuto!.trajectory.states[i].pose.translation,
+          scale,
+          fieldImage);
+      p.lineTo(pos.dx, pos.dy);
+    }
+    canvas.drawPath(p, pathPaint);
+
+    // Draw ghost start and end indicators
+    _paintGhostEndpoint(
+        ghostAuto!.trajectory.states.first, canvas, const Color(0xBB00FF00));
+    _paintGhostEndpoint(
+        ghostAuto!.trajectory.states.last, canvas, const Color(0xBBFF0000));
+
+    // Draw ghost robot at current time (synced to main preview wall-clock time)
+    if (previewTime != null) {
+      num ghostTime = previewTime!.value + ghostTimeOffset;
+
+      // Clamp to ghost trajectory duration
+      num ghostTotalTime = ghostAuto!.getTotalTimeSeconds();
+      if (ghostTime > ghostTotalTime) {
+        ghostTime = ghostTotalTime;
+      }
+
+      // Use sampleLinear to avoid velocity-integration drift at waypoints
+      TrajectoryState ghostState = ghostAuto!.sampleLinear(ghostTime);
+      Rotation2d ghostRotation = ghostState.pose.rotation;
+
+      // Draw ghost swerve modules
+      if (ghostAuto!.holonomic &&
+          ghostState.moduleStates.isNotEmpty &&
+          ghostAuto!.moduleLocations.length == ghostState.moduleStates.length) {
+        List<Pose2d> ghostModPoses = [];
+        for (int i = 0; i < ghostAuto!.moduleLocations.length; i++) {
+          ghostModPoses.add(Pose2d(
+            ghostState.pose.translation +
+                ghostAuto!.moduleLocations[i].rotateBy(ghostRotation),
+            ghostState.moduleStates[i].fieldAngle,
+          ));
+        }
+        PathPainterUtil.paintRobotModules(
+            ghostModPoses, fieldImage, scale, canvas, ghostColor);
+      }
+
+      // Draw ghost bumper outline
+      PathPainterUtil.paintRobotOutline(
+        Pose2d(ghostState.pose.translation, ghostRotation),
+        fieldImage,
+        ghostAuto!.bumperSize,
+        ghostAuto!.bumperOffset,
+        scale,
+        canvas,
+        ghostColor,
+        ghostOutlineColor,
+        [], // No features for ghost robot
+      );
+    }
+  }
+
+  /// Paint a small circle endpoint indicator for the ghost trajectory.
+  void _paintGhostEndpoint(
+      TrajectoryState state, Canvas canvas, Color color) {
+    var paint = Paint()
+      ..style = PaintingStyle.fill
+      ..color = color;
+    canvas.drawCircle(
+        PathPainterUtil.pointToPixelOffset(
+            state.pose.translation, scale, fieldImage),
+        PathPainterUtil.uiPointSizeToPixels(18, scale, fieldImage),
+        paint);
   }
 
   void _paintChoreoWaypoint(

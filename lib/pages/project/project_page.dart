@@ -8,6 +8,7 @@ import 'package:path/path.dart';
 import 'package:pathplanner/commands/command.dart';
 import 'package:pathplanner/commands/command_groups.dart';
 import 'package:pathplanner/commands/named_command.dart';
+import 'package:pathplanner/auto/ghost_auto.dart';
 import 'package:pathplanner/pages/auto_editor_page.dart';
 import 'package:pathplanner/pages/choreo_path_editor_page.dart';
 import 'package:pathplanner/pages/path_editor_page.dart';
@@ -1005,7 +1006,8 @@ class _ProjectPageState extends State<ProjectPage> {
     });
   }
 
-  void _openPath(PathPlannerPath path) async {
+  void _openPath(PathPlannerPath path,
+      {GhostAuto? ghostAuto, num ghostTimeOffset = 0}) async {
     await Navigator.push(
       this.context,
       MaterialPageRoute(
@@ -1019,6 +1021,8 @@ class _ProjectPageState extends State<ProjectPage> {
           telemetry: widget.telemetry,
           hotReload: widget.hotReload,
           simulatePath: widget.simulatePath,
+          ghostAuto: ghostAuto,
+          ghostTimeOffset: ghostTimeOffset,
           onPathChanged: () {
             // Update the linked rotation for the start/end states
             if (path.waypoints.first.linkedName != null) {
@@ -1484,7 +1488,7 @@ class _ProjectPageState extends State<ProjectPage> {
       },
       onRenamed: (value) => _renameAuto(i, value, context),
       onOpened: () async {
-        String? pathNameToOpen = await Navigator.push<String?>(
+        await Navigator.push(
           context,
           MaterialPageRoute(
             builder: (context) => AutoEditorPage(
@@ -1507,14 +1511,6 @@ class _ProjectPageState extends State<ProjectPage> {
         setState(() {
           _sortAutos(_autoSortValue);
         });
-
-        if (pathNameToOpen != null) {
-          final pathToOpen =
-              _paths.firstWhereOrNull((p) => p.name == pathNameToOpen);
-          if (pathToOpen != null) {
-            _openPath(pathToOpen);
-          }
-        }
       },
       warningMessage: warningMessage,
     );

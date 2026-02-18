@@ -183,7 +183,7 @@ void main() {
 
     expect(w.heading.degrees, closeTo(-32.0, epsilon));
     expect(w.prevControlLength, isNull);
-    expect(w.nextControlLength, closeTo(nextControlLength!, epsilon));
+    expect(w.nextControlLength, closeTo(nextControlLength, epsilon));
 
     w = Waypoint(
       anchor: const Translation2d(2.0, 2.0),
@@ -195,7 +195,7 @@ void main() {
     w.setHeading(const Rotation2d(0.0));
 
     expect(w.heading.degrees, closeTo(0.0, epsilon));
-    expect(w.prevControlLength, closeTo(prevControlLengh!, epsilon));
+    expect(w.prevControlLength, closeTo(prevControlLengh, epsilon));
     expect(w.nextControlLength, isNull);
   });
 

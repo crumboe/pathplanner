@@ -12,6 +12,12 @@ import 'package:pathplanner/pages/nav_grid_page.dart';
 import 'package:pathplanner/pages/project/project_page.dart';
 import 'package:pathplanner/pages/telemetry_page.dart';
 import 'package:pathplanner/pages/welcome_page.dart';
+import 'package:pathplanner/auto/ghost_auto.dart';
+import 'package:pathplanner/auto/pathplanner_auto.dart';
+import 'package:pathplanner/path/pathplanner_path.dart';
+import 'package:pathplanner/trajectory/auto_simulator.dart';
+import 'package:pathplanner/trajectory/config.dart';
+import 'package:pathplanner/trajectory/trajectory.dart';
 import 'package:pathplanner/services/log.dart';
 import 'package:pathplanner/services/pplib_telemetry.dart';
 import 'package:pathplanner/services/update_checker.dart';
@@ -310,8 +316,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     return Align(
       alignment: Alignment.bottomLeft,
       child: Padding(
-        padding: const EdgeInsets.only(bottom: 12.0, left: 8.0),
-        child: Row(
+        padding: const EdgeInsets.only(bottom: 12.0, left: 8.0, right: 8.0),
+        child: Wrap(
+          spacing: 6,
+          runSpacing: 6,
           children: [
             _buildButton(
               onPressed: () => launchUrl(Uri.parse('https://pathplanner.dev')),
@@ -320,7 +328,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               backgroundColor: colorScheme.primaryContainer,
               foregroundColor: colorScheme.onPrimaryContainer,
             ),
-            const SizedBox(width: 6),
             _buildButton(
               onPressed: () {
                 Navigator.pop(this.context);
@@ -334,6 +341,19 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               backgroundColor: colorScheme.surfaceContainer,
               foregroundColor: colorScheme.onSurface,
               surfaceTintColor: colorScheme.surfaceTint,
+            ),
+            _buildButton(
+              onPressed: () {
+                Navigator.pop(this.context);
+                _exportAllGhostAutos();
+              },
+              icon: Icon(
+                Icons.upload_file,
+                color: colorScheme.onTertiaryContainer,
+              ),
+              label: 'Export Ghosts',
+              backgroundColor: colorScheme.tertiaryContainer,
+              foregroundColor: colorScheme.onTertiaryContainer,
             ),
           ],
         ),
@@ -352,9 +372,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     return ElevatedButton.icon(
       onPressed: onPressed,
       icon: icon,
-      label: Text(label, style: const TextStyle(fontSize: 12)),
+      label: Text(label, style: const TextStyle(fontSize: 11)),
       style: ElevatedButton.styleFrom(
-        fixedSize: const Size(141, 50),
+        minimumSize: const Size(0, 44),
+        padding: const EdgeInsets.symmetric(horizontal: 12),
         backgroundColor: backgroundColor,
         foregroundColor: foregroundColor,
         surfaceTintColor: surfaceTintColor,
@@ -674,6 +695,121 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     }).catchError((err) {
       Log.error('Error writing project settings', err);
     });
+  }
+
+  void _exportAllGhostAutos() async {
+    if (_projectDir == null) return;
+
+    // Ask user to pick a destination folder
+    String? destFolder = await getDirectoryPath(
+      confirmButtonText: 'Export Ghost Autos Here',
+      initialDirectory: _projectDir!.path,
+    );
+
+    if (destFolder == null) return;
+
+    // Load all paths and autos from the project
+    Directory pathsDir =
+        fs.directory(join(_pathplannerDir.path, 'paths'));
+    Directory autosDir =
+        fs.directory(join(_pathplannerDir.path, 'autos'));
+
+    if (!pathsDir.existsSync() || !autosDir.existsSync()) {
+      if (mounted) {
+        ScaffoldMessenger.of(this.context).showSnackBar(
+          SnackBar(
+            content: const Text('No paths or autos found in this project.'),
+            behavior: SnackBarBehavior.floating,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+        );
+      }
+      return;
+    }
+
+    List<PathPlannerPath> allPaths =
+        await PathPlannerPath.loadAllPathsInDir(pathsDir.path, fs);
+    List<PathPlannerAuto> allAutos =
+        await PathPlannerAuto.loadAllAutosInDir(autosDir.path, fs);
+
+    RobotConfig robotConfig = RobotConfig.fromPrefs(widget.prefs);
+
+    int exported = 0;
+    int failed = 0;
+
+    for (PathPlannerAuto auto in allAutos) {
+      if (auto.choreoAuto) {
+        // Skip choreo autos for now — they need choreo path data
+        continue;
+      }
+
+      try {
+        List<String> pathNames = auto.getAllPathNames();
+        List<PathPlannerPath> autoPaths = [];
+        bool missingPath = false;
+
+        for (String name in pathNames) {
+          try {
+            autoPaths
+                .add(allPaths.firstWhere((path) => path.name == name));
+          } catch (_) {
+            Log.warning(
+                'Auto "${auto.name}" references missing path: $name');
+            missingPath = true;
+            break;
+          }
+        }
+
+        if (missingPath || autoPaths.isEmpty) {
+          failed++;
+          continue;
+        }
+
+        PathPlannerTrajectory? simTraj =
+            AutoSimulator.simulateAuto(autoPaths, robotConfig);
+
+        if (simTraj == null ||
+            !simTraj.getTotalTimeSeconds().isFinite ||
+            simTraj.states.isEmpty) {
+          failed++;
+          continue;
+        }
+
+        GhostAuto ghostAuto = GhostAuto(
+          name: auto.name,
+          trajectory: simTraj,
+          bumperSize: robotConfig.bumperSize,
+          bumperOffset: robotConfig.bumperOffset,
+          moduleLocations: robotConfig.moduleLocations,
+          holonomic: robotConfig.holonomic,
+        );
+
+        String filePath = join(destFolder, '${auto.name}.ghostauto');
+        bool success = await GhostAuto.exportToPath(ghostAuto, filePath);
+        if (success) {
+          exported++;
+        } else {
+          failed++;
+        }
+      } catch (ex) {
+        Log.error('Failed to export ghost for auto: ${auto.name}', ex);
+        failed++;
+      }
+    }
+
+    if (mounted) {
+      String message = 'Exported $exported ghost auto(s)';
+      if (failed > 0) message += ' ($failed failed)';
+      ScaffoldMessenger.of(this.context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+      );
+    }
   }
 
   void _openProjectDialog() async {

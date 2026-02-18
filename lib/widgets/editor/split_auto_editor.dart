@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:multi_split_view/multi_split_view.dart';
+import 'package:pathplanner/auto/ghost_auto.dart';
 import 'package:pathplanner/auto/pathplanner_auto.dart';
+import 'package:pathplanner/pages/auto_editor_page.dart';
 import 'package:pathplanner/path/choreo_path.dart';
 import 'package:pathplanner/services/log.dart';
 import 'package:pathplanner/trajectory/auto_simulator.dart';
@@ -8,6 +10,8 @@ import 'package:pathplanner/trajectory/config.dart';
 import 'package:pathplanner/trajectory/trajectory.dart';
 import 'package:pathplanner/path/pathplanner_path.dart';
 import 'package:pathplanner/util/prefs.dart';
+import 'package:pathplanner/util/wpimath/geometry.dart';
+import 'package:pathplanner/util/wpimath/kinematics.dart';
 import 'package:pathplanner/widgets/dialogs/trajectory_render_dialog.dart';
 import 'package:pathplanner/widgets/editor/path_painter.dart';
 import 'package:pathplanner/widgets/editor/preview_seekbar.dart';
@@ -25,7 +29,7 @@ class SplitAutoEditor extends StatefulWidget {
   final VoidCallback? onAutoChanged;
   final FieldImage fieldImage;
   final ChangeStack undoStack;
-  final Function(String?)? onEditPathPressed;
+  final Function(EditPathResult)? onEditPathPressed;
 
   const SplitAutoEditor({
     required this.prefs,
@@ -51,6 +55,7 @@ class _SplitAutoEditorState extends State<SplitAutoEditor>
   late bool _treeOnRight;
   PathPlannerTrajectory? _simTraj;
   bool _paused = false;
+  GhostAuto? _ghostAuto;
 
   late AnimationController _previewController;
 
@@ -77,6 +82,17 @@ class _SplitAutoEditorState extends State<SplitAutoEditor>
     ];
 
     WidgetsBinding.instance.addPostFrameCallback((_) => _simulateAuto());
+  }
+
+  @override
+  void didUpdateWidget(SplitAutoEditor oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    // Re-simulate if the paths changed (e.g. returning from path editor)
+    if (widget.autoPaths != oldWidget.autoPaths ||
+        widget.autoChoreoPaths != oldWidget.autoChoreoPaths) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _simulateAuto());
+    }
   }
 
   @override
@@ -113,7 +129,8 @@ class _SplitAutoEditorState extends State<SplitAutoEditor>
                             fieldImage: widget.fieldImage,
                             simulatedPath: _simTraj,
                             animation: _previewController.view,
-                            prefs: widget.prefs)),
+                            prefs: widget.prefs,
+                            ghostAuto: _ghostAuto)),
                   ),
                 ],
               ),
@@ -167,6 +184,14 @@ class _SplitAutoEditorState extends State<SplitAutoEditor>
                     auto: widget.auto,
                     autoRuntime: _simTraj?.states.last.timeSeconds,
                     allPathNames: widget.allPathNames,
+                    ghostAutoName: _ghostAuto?.name,
+                    onExportGhostAuto: () => _exportGhostAuto(),
+                    onImportGhostAuto: () => _importGhostAuto(),
+                    onClearGhostAuto: () {
+                      setState(() {
+                        _ghostAuto = null;
+                      });
+                    },
                     onRenderAuto: () {
                       if (_simTraj != null) {
                         showDialog(
@@ -199,7 +224,16 @@ class _SplitAutoEditorState extends State<SplitAutoEditor>
                       _controller.areas = _controller.areas.reversed.toList();
                     }),
                     undoStack: widget.undoStack,
-                    onEditPathPressed: widget.onEditPathPressed,
+                    onEditPathPressed: (pathName) {
+                      if (pathName == null) return;
+                      num timeOffset =
+                          _computeGhostTimeOffset(pathName);
+                      widget.onEditPathPressed?.call(EditPathResult(
+                        pathName: pathName,
+                        ghostAuto: _ghostAuto,
+                        ghostTimeOffset: timeOffset,
+                      ));
+                    },
                   ),
                 ),
               ),
@@ -214,6 +248,114 @@ class _SplitAutoEditorState extends State<SplitAutoEditor>
         ),
       ],
     );
+  }
+
+  /// Compute the time offset (in seconds) at which the given [pathName]
+  /// starts within the full auto trajectory. This mirrors the chaining logic
+  /// in [AutoSimulator.simulateAuto] / the choreo path concatenation above.
+  num _computeGhostTimeOffset(String pathName) {
+    if (widget.auto.choreoAuto) {
+      // Choreo paths: walk the choreo path list accumulating durations
+      num offset = 0;
+      for (ChoreoPath cp in widget.autoChoreoPaths) {
+        if (cp.name == pathName) return offset;
+        if (cp.trajectory.states.isNotEmpty) {
+          offset += cp.trajectory.states.last.timeSeconds;
+        }
+      }
+      return offset;
+    } else {
+      // Standard paths: simulate each path individually to get durations
+      RobotConfig config = RobotConfig.fromPrefs(widget.prefs);
+      num offset = 0;
+      Pose2d startPose = widget.autoPaths.isNotEmpty
+          ? Pose2d(widget.autoPaths[0].pathPoints[0].position,
+              widget.autoPaths[0].idealStartingState.rotation)
+          : Pose2d(const Translation2d(0, 0), const Rotation2d());
+      ChassisSpeeds startSpeeds = const ChassisSpeeds();
+
+      for (PathPlannerPath p in widget.autoPaths) {
+        if (p.name == pathName) return offset;
+
+        try {
+          PathPlannerTrajectory simPath = PathPlannerTrajectory(
+            path: p,
+            startingSpeeds: startSpeeds,
+            startingRotation: startPose.rotation,
+            robotConfig: config,
+          );
+          if (simPath.states.isNotEmpty &&
+              simPath.states.last.timeSeconds.isFinite) {
+            offset += simPath.states.last.timeSeconds;
+            startPose = Pose2d(
+              simPath.states.last.pose.translation,
+              simPath.states.last.pose.rotation,
+            );
+            startSpeeds = simPath.states.last.fieldSpeeds;
+          }
+        } catch (_) {
+          // If simulation fails for a segment, just skip its contribution
+        }
+      }
+      return offset;
+    }
+  }
+
+  void _exportGhostAuto() {
+    if (_simTraj == null || _simTraj!.states.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+              'Cannot export: no simulated trajectory available. '
+              'Ensure the auto has valid paths.'),
+          behavior: SnackBarBehavior.floating,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+      );
+      return;
+    }
+
+    RobotConfig config = RobotConfig.fromPrefs(widget.prefs);
+    GhostAuto ghostAuto = GhostAuto(
+      name: widget.auto.name,
+      trajectory: _simTraj!,
+      bumperSize: config.bumperSize,
+      bumperOffset: config.bumperOffset,
+      moduleLocations: config.moduleLocations,
+      holonomic: config.holonomic,
+    );
+
+    GhostAuto.exportToFile(ghostAuto).then((success) {
+      if (success && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Exported ghost auto: ${widget.auto.name}'),
+            behavior: SnackBarBehavior.floating,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+        );
+      }
+    });
+  }
+
+  void _importGhostAuto() {
+    GhostAuto.importFromFile().then((ghost) {
+      if (ghost != null && mounted) {
+        setState(() {
+          _ghostAuto = ghost;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Loaded reference auto: ${ghost.name}'),
+            behavior: SnackBarBehavior.floating,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+        );
+      }
+    });
   }
 
   // Marked as async so it can run from initState

@@ -15,6 +15,10 @@ class AutoTree extends StatefulWidget {
   final num? autoRuntime;
   final Function(String?)? onEditPathPressed;
   final VoidCallback? onRenderAuto;
+  final VoidCallback? onExportGhostAuto;
+  final VoidCallback? onImportGhostAuto;
+  final VoidCallback? onClearGhostAuto;
+  final String? ghostAutoName;
 
   const AutoTree({
     super.key,
@@ -27,6 +31,10 @@ class AutoTree extends StatefulWidget {
     this.autoRuntime,
     this.onEditPathPressed,
     this.onRenderAuto,
+    this.onExportGhostAuto,
+    this.onImportGhostAuto,
+    this.onClearGhostAuto,
+    this.ghostAutoName,
   });
 
   @override
@@ -63,6 +71,38 @@ class _AutoTreeState extends State<AutoTree> {
                     ),
                   ),
                   Tooltip(
+                    message: 'Export as Reference Auto',
+                    waitDuration: const Duration(milliseconds: 500),
+                    child: IconButton(
+                      onPressed: widget.onExportGhostAuto,
+                      icon: const Icon(Icons.upload_file),
+                    ),
+                  ),
+                  Tooltip(
+                    message: widget.ghostAutoName != null
+                        ? 'Reference: ${widget.ghostAutoName}'
+                        : 'Load Reference Auto',
+                    waitDuration: const Duration(milliseconds: 500),
+                    child: IconButton(
+                      onPressed: widget.onImportGhostAuto,
+                      icon: Icon(
+                        Icons.download,
+                        color: widget.ghostAutoName != null
+                            ? const Color(0xFFFF6EC7)
+                            : null,
+                      ),
+                    ),
+                  ),
+                  if (widget.ghostAutoName != null)
+                    Tooltip(
+                      message: 'Clear Reference Auto',
+                      waitDuration: const Duration(milliseconds: 500),
+                      child: IconButton(
+                        onPressed: widget.onClearGhostAuto,
+                        icon: const Icon(Icons.close, size: 20),
+                      ),
+                    ),
+                  Tooltip(
                     message: 'Move to Other Side',
                     waitDuration: const Duration(seconds: 1),
                     child: IconButton(
@@ -76,6 +116,27 @@ class _AutoTreeState extends State<AutoTree> {
           ),
         ),
         const SizedBox(height: 4.0),
+        if (widget.ghostAutoName != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8.0),
+            child: Row(
+              children: [
+                const Icon(Icons.visibility, size: 16, color: Color(0xFFFF6EC7)),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    'Reference: ${widget.ghostAutoName}',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: Color(0xFFFF6EC7),
+                      fontStyle: FontStyle.italic,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ),
         Expanded(
           child: SingleChildScrollView(
             child: Column(
