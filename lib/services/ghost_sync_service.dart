@@ -159,12 +159,16 @@ class GhostSyncService extends ChangeNotifier {
     }
     _ghostFadeTimers.clear();
 
-    for (var ws in _peerSockets.values) {
+    // Snapshot keys+sockets before closing, because ws.close() can
+    // trigger onDone → _handleDisconnect → _peerSockets.remove(),
+    // which would cause ConcurrentModificationException.
+    final socketsToClose = _peerSockets.values.toList();
+    _peerSockets.clear();
+    for (var ws in socketsToClose) {
       try {
         await ws.close();
       } catch (_) {}
     }
-    _peerSockets.clear();
     _connectedPeers.clear();
     _connectingTo.clear();
 
@@ -423,7 +427,7 @@ class GhostSyncService extends ChangeNotifier {
     _pingTimer = Timer.periodic(_pingInterval, (_) {
       // Use pre-encoded string to avoid jsonEncode overhead
       const pingMsg = '{"type":"ping"}';
-      for (var ws in _peerSockets.values) {
+      for (var ws in _peerSockets.values.toList()) {
         try {
           ws.add(pingMsg);
         } catch (_) {}
@@ -622,7 +626,7 @@ class GhostSyncService extends ChangeNotifier {
 
   void _broadcastMessage(Map<String, dynamic> message) {
     String encoded = jsonEncode(message);
-    for (var ws in _peerSockets.values) {
+    for (var ws in _peerSockets.values.toList()) {
       try {
         ws.add(encoded);
       } catch (e) {
@@ -640,7 +644,7 @@ class GhostSyncService extends ChangeNotifier {
     };
 
     String encoded = jsonEncode(message);
-    for (var ws in _peerSockets.values) {
+    for (var ws in _peerSockets.values.toList()) {
       try {
         ws.add(encoded);
       } catch (e) {
