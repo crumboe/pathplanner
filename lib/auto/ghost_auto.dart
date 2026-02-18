@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 import 'package:pathplanner/services/log.dart';
 import 'package:pathplanner/trajectory/trajectory.dart';
 import 'package:pathplanner/util/wpimath/geometry.dart';
@@ -13,7 +14,23 @@ import 'package:pathplanner/util/wpimath/kinematics.dart';
 /// visualizing another robot's (or the same robot's) auto as a translucent
 /// reference overlay while editing a different auto.
 class GhostAuto {
+  /// Ghost colors for distinguishing up to 4 ghosts (2 local + 2 network).
+  static const List<Color> ghostColors = [
+    Color(0xCCFF6EC7), // Bright pink (local 1)
+    Color(0xCC00E5FF), // Bright cyan (local 2)
+    Color(0xCCAAFF00), // Lime (network 1)
+    Color(0xCCFF9100), // Orange (network 2)
+  ];
+  static const List<Color> ghostPathColors = [
+    Color(0xAAFF6EC7),
+    Color(0xAA00E5FF),
+    Color(0xAAAAFF00),
+    Color(0xAAFF9100),
+  ];
+
   final String name;
+  final String teamName;
+  final bool isNetworkGhost;
   final PathPlannerTrajectory trajectory;
   final Size bumperSize;
   final Translation2d bumperOffset;
@@ -22,6 +39,8 @@ class GhostAuto {
 
   const GhostAuto({
     required this.name,
+    this.teamName = '',
+    this.isNetworkGhost = false,
     required this.trajectory,
     required this.bumperSize,
     required this.bumperOffset,
@@ -29,11 +48,15 @@ class GhostAuto {
     required this.holonomic,
   });
 
+  /// Return a label for display: teamName if set, otherwise the auto name.
+  String get displayLabel => teamName.isNotEmpty ? '$teamName / $name' : name;
+
   /// Serialize the ghost auto to JSON.
   Map<String, dynamic> toJson() {
     return {
       'version': '1.0',
       'name': name,
+      'teamName': teamName,
       'bumperSize': {
         'width': bumperSize.width,
         'height': bumperSize.height,
@@ -109,6 +132,7 @@ class GhostAuto {
 
     return GhostAuto(
       name: json['name'] ?? 'Ghost Auto',
+      teamName: json['teamName'] ?? '',
       trajectory: PathPlannerTrajectory.fromStates(states),
       bumperSize: Size(
         (json['bumperSize']?['width'] ?? 0.9).toDouble(),
@@ -165,7 +189,8 @@ class GhostAuto {
 
   /// Import a ghost auto from a file chosen by the user.
   /// Returns null if the user cancelled or the file was invalid.
-  static Future<GhostAuto?> importFromFile() async {
+  /// If [initialDirectory] is provided, the file picker will start there.
+  static Future<GhostAuto?> importFromFile({String? initialDirectory}) async {
     try {
       final file = await openFile(
         acceptedTypeGroups: [
@@ -174,12 +199,35 @@ class GhostAuto {
             extensions: ['ghostauto'],
           ),
         ],
+        initialDirectory: initialDirectory,
       );
 
       if (file != null) {
         final jsonStr = await file.readAsString();
         final json = jsonDecode(jsonStr);
-        final ghostAuto = GhostAuto.fromJson(json);
+        GhostAuto ghostAuto = GhostAuto.fromJson(json);
+
+        // Derive team name from parent folder if not already set
+        if (ghostAuto.teamName.isEmpty && file.path.isNotEmpty) {
+          String parentFolder = p.basename(p.dirname(file.path));
+          // Only use parent name if it looks like a team folder
+          // (not generic names like Desktop, Downloads, ghosts, etc.)
+          if (parentFolder.isNotEmpty &&
+              parentFolder != 'ghosts' &&
+              parentFolder != '.' &&
+              parentFolder != '..') {
+            ghostAuto = GhostAuto(
+              name: ghostAuto.name,
+              teamName: parentFolder,
+              trajectory: ghostAuto.trajectory,
+              bumperSize: ghostAuto.bumperSize,
+              bumperOffset: ghostAuto.bumperOffset,
+              moduleLocations: ghostAuto.moduleLocations,
+              holonomic: ghostAuto.holonomic,
+            );
+          }
+        }
+
         Log.debug('Imported ghost auto: ${ghostAuto.name}');
         return ghostAuto;
       }

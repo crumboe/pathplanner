@@ -6,6 +6,7 @@ import 'package:pathplanner/pages/path_editor_page.dart';
 import 'package:pathplanner/path/choreo_path.dart';
 import 'package:pathplanner/path/pathplanner_path.dart';
 import 'package:pathplanner/path/waypoint.dart';
+import 'package:pathplanner/services/ghost_sync_service.dart';
 import 'package:pathplanner/services/pplib_telemetry.dart';
 import 'package:pathplanner/util/wpimath/geometry.dart';
 import 'package:pathplanner/widgets/conditional_widget.dart';
@@ -22,12 +23,12 @@ import 'package:undo/undo.dart';
 /// at the correct position in the auto timeline.
 class EditPathResult {
   final String pathName;
-  final GhostAuto? ghostAuto;
+  final List<GhostAuto> ghostAutos;
   final num ghostTimeOffset;
 
   const EditPathResult({
     required this.pathName,
-    this.ghostAuto,
+    this.ghostAutos = const [],
     this.ghostTimeOffset = 0,
   });
 }
@@ -44,6 +45,7 @@ class AutoEditorPage extends StatefulWidget {
   final bool shortcuts;
   final PPLibTelemetry? telemetry;
   final bool hotReload;
+  final GhostSyncService? ghostSyncService;
 
   const AutoEditorPage({
     super.key,
@@ -58,6 +60,7 @@ class AutoEditorPage extends StatefulWidget {
     this.shortcuts = true,
     this.telemetry,
     this.hotReload = false,
+    this.ghostSyncService,
   });
 
   @override
@@ -90,7 +93,7 @@ class _AutoEditorPageState extends State<AutoEditorPage> {
           telemetry: widget.telemetry,
           hotReload: widget.hotReload,
           simulatePath: true,
-          ghostAuto: result.ghostAuto,
+          ghostAutos: result.ghostAutos,
           ghostTimeOffset: result.ghostTimeOffset,
           onPathChanged: () {
             // Update linked waypoint positions across all paths
@@ -180,6 +183,7 @@ class _AutoEditorPageState extends State<AutoEditorPage> {
       allPathNames: widget.allPathNames,
       fieldImage: widget.fieldImage,
       undoStack: widget.undoStack,
+      ghostSyncService: widget.ghostSyncService,
       onAutoChanged: () {
         setState(() {
           widget.auto.saveFile();

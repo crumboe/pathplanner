@@ -145,6 +145,7 @@ class _EventMarkersTreeState extends State<EventMarkersTree> {
           Expanded(
             child: DropdownButtonHideUnderline(
               child: DropdownButton2<String>(
+                isExpanded: true,
                 hint: const Text('Event Name'),
                 value: markers[markerIdx].name.isEmpty
                     ? null

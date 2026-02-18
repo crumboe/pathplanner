@@ -39,7 +39,7 @@ class PathPainter extends CustomPainter {
   final PathPlannerTrajectory? simulatedPath;
   final SharedPreferences prefs;
   final PathPlannerPath? optimizedPath;
-  final GhostAuto? ghostAuto;
+  final List<GhostAuto> ghostAutos;
   final num ghostTimeOffset;
 
   late final RobotConfig robotConfig;
@@ -71,7 +71,7 @@ class PathPainter extends CustomPainter {
     Animation<double>? animation,
     required this.prefs,
     this.optimizedPath,
-    this.ghostAuto,
+    this.ghostAutos = const [],
     this.ghostTimeOffset = 0,
   }) : super(repaint: animation) {
     robotConfig = RobotConfig.fromPrefs(prefs);
@@ -198,8 +198,8 @@ class PathPainter extends CustomPainter {
       _paintTrajectoryStates(simulatedPath, canvas);
     }
 
-    // Paint ghost auto (reference auto from another robot) behind the main preview
-    _paintGhostAuto(canvas, size);
+    // Paint ghost autos (reference autos from other robots) behind the main preview
+    _paintGhostAutos(canvas, size);
 
     if (previewTime != null) {
       TrajectoryState state = simulatedPath!.sample(previewTime!.value);
@@ -313,83 +313,86 @@ class PathPainter extends CustomPainter {
   }
 
   /// Paint the ghost auto trajectory line and ghost robot at the current preview time.
-  void _paintGhostAuto(Canvas canvas, Size size) {
-    if (ghostAuto == null || ghostAuto!.trajectory.states.isEmpty) return;
+  void _paintGhostAutos(Canvas canvas, Size size) {
+    for (int gi = 0; gi < ghostAutos.length; gi++) {
+      final ghost = ghostAutos[gi];
+      if (ghost.trajectory.states.isEmpty) continue;
 
-    const Color ghostColor = Color(0xCCFF6EC7); // Bright pink, high opacity
-    const Color ghostPathColor = Color(0xAAFF6EC7);
-    const Color ghostOutlineColor = Color(0x66000000);
+      Color ghostColor = GhostAuto.ghostColors[gi % GhostAuto.ghostColors.length];
+      Color ghostPathColor = GhostAuto.ghostPathColors[gi % GhostAuto.ghostPathColors.length];
+      const Color ghostOutlineColor = Color(0x66000000);
 
-    // Draw the ghost trajectory line
-    var pathPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..color = ghostPathColor
-      ..strokeWidth = 2;
+      // Draw the ghost trajectory line
+      var pathPaint = Paint()
+        ..style = PaintingStyle.stroke
+        ..color = ghostPathColor
+        ..strokeWidth = 2;
 
-    Path p = Path();
-    Offset start = PathPainterUtil.pointToPixelOffset(
-        ghostAuto!.trajectory.states.first.pose.translation,
-        scale,
-        fieldImage);
-    p.moveTo(start.dx, start.dy);
-
-    for (int i = 1; i < ghostAuto!.trajectory.states.length; i++) {
-      Offset pos = PathPainterUtil.pointToPixelOffset(
-          ghostAuto!.trajectory.states[i].pose.translation,
+      Path p = Path();
+      Offset start = PathPainterUtil.pointToPixelOffset(
+          ghost.trajectory.states.first.pose.translation,
           scale,
           fieldImage);
-      p.lineTo(pos.dx, pos.dy);
-    }
-    canvas.drawPath(p, pathPaint);
+      p.moveTo(start.dx, start.dy);
 
-    // Draw ghost start and end indicators
-    _paintGhostEndpoint(
-        ghostAuto!.trajectory.states.first, canvas, const Color(0xBB00FF00));
-    _paintGhostEndpoint(
-        ghostAuto!.trajectory.states.last, canvas, const Color(0xBBFF0000));
-
-    // Draw ghost robot at current time (synced to main preview wall-clock time)
-    if (previewTime != null) {
-      num ghostTime = previewTime!.value + ghostTimeOffset;
-
-      // Clamp to ghost trajectory duration
-      num ghostTotalTime = ghostAuto!.getTotalTimeSeconds();
-      if (ghostTime > ghostTotalTime) {
-        ghostTime = ghostTotalTime;
+      for (int i = 1; i < ghost.trajectory.states.length; i++) {
+        Offset pos = PathPainterUtil.pointToPixelOffset(
+            ghost.trajectory.states[i].pose.translation,
+            scale,
+            fieldImage);
+        p.lineTo(pos.dx, pos.dy);
       }
+      canvas.drawPath(p, pathPaint);
 
-      // Use sampleLinear to avoid velocity-integration drift at waypoints
-      TrajectoryState ghostState = ghostAuto!.sampleLinear(ghostTime);
-      Rotation2d ghostRotation = ghostState.pose.rotation;
+      // Draw ghost start and end indicators
+      _paintGhostEndpoint(
+          ghost.trajectory.states.first, canvas, ghostColor.withOpacity(0.6));
+      _paintGhostEndpoint(
+          ghost.trajectory.states.last, canvas, ghostColor.withOpacity(0.4));
 
-      // Draw ghost swerve modules
-      if (ghostAuto!.holonomic &&
-          ghostState.moduleStates.isNotEmpty &&
-          ghostAuto!.moduleLocations.length == ghostState.moduleStates.length) {
-        List<Pose2d> ghostModPoses = [];
-        for (int i = 0; i < ghostAuto!.moduleLocations.length; i++) {
-          ghostModPoses.add(Pose2d(
-            ghostState.pose.translation +
-                ghostAuto!.moduleLocations[i].rotateBy(ghostRotation),
-            ghostState.moduleStates[i].fieldAngle,
-          ));
+      // Draw ghost robot at current time (synced to main preview wall-clock time)
+      if (previewTime != null) {
+        num ghostTime = previewTime!.value + ghostTimeOffset;
+
+        // Clamp to ghost trajectory duration
+        num ghostTotalTime = ghost.getTotalTimeSeconds();
+        if (ghostTime > ghostTotalTime) {
+          ghostTime = ghostTotalTime;
         }
-        PathPainterUtil.paintRobotModules(
-            ghostModPoses, fieldImage, scale, canvas, ghostColor);
-      }
 
-      // Draw ghost bumper outline
-      PathPainterUtil.paintRobotOutline(
-        Pose2d(ghostState.pose.translation, ghostRotation),
-        fieldImage,
-        ghostAuto!.bumperSize,
-        ghostAuto!.bumperOffset,
-        scale,
-        canvas,
-        ghostColor,
-        ghostOutlineColor,
-        [], // No features for ghost robot
-      );
+        // Use sampleLinear to avoid velocity-integration drift at waypoints
+        TrajectoryState ghostState = ghost.sampleLinear(ghostTime);
+        Rotation2d ghostRotation = ghostState.pose.rotation;
+
+        // Draw ghost swerve modules
+        if (ghost.holonomic &&
+            ghostState.moduleStates.isNotEmpty &&
+            ghost.moduleLocations.length == ghostState.moduleStates.length) {
+          List<Pose2d> ghostModPoses = [];
+          for (int i = 0; i < ghost.moduleLocations.length; i++) {
+            ghostModPoses.add(Pose2d(
+              ghostState.pose.translation +
+                  ghost.moduleLocations[i].rotateBy(ghostRotation),
+              ghostState.moduleStates[i].fieldAngle,
+            ));
+          }
+          PathPainterUtil.paintRobotModules(
+              ghostModPoses, fieldImage, scale, canvas, ghostColor);
+        }
+
+        // Draw ghost bumper outline
+        PathPainterUtil.paintRobotOutline(
+          Pose2d(ghostState.pose.translation, ghostRotation),
+          fieldImage,
+          ghost.bumperSize,
+          ghost.bumperOffset,
+          scale,
+          canvas,
+          ghostColor,
+          ghostOutlineColor,
+          [], // No features for ghost robot
+        );
+      }
     }
   }
 

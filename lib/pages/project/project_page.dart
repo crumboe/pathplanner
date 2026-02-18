@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:collection/collection.dart';
 import 'package:file/file.dart';
 import 'package:flutter/material.dart';
 import 'package:multi_split_view/multi_split_view.dart';
@@ -19,6 +18,7 @@ import 'package:pathplanner/path/event_marker.dart';
 import 'package:pathplanner/path/path_constraints.dart';
 import 'package:pathplanner/path/pathplanner_path.dart';
 import 'package:pathplanner/path/waypoint.dart';
+import 'package:pathplanner/services/ghost_sync_service.dart';
 import 'package:pathplanner/services/pplib_telemetry.dart';
 import 'package:pathplanner/util/prefs.dart';
 import 'package:pathplanner/util/wpimath/geometry.dart';
@@ -45,6 +45,7 @@ class ProjectPage extends StatefulWidget {
   final VoidCallback? onFoldersChanged;
   final bool simulatePath;
   final bool watchChorDir;
+  final GhostSyncService? ghostSyncService;
 
   // Stupid workaround to get when settings are updated
   static bool settingsUpdated = false;
@@ -63,6 +64,7 @@ class ProjectPage extends StatefulWidget {
     this.onFoldersChanged,
     this.simulatePath = false,
     this.watchChorDir = false,
+    this.ghostSyncService,
   });
 
   @override
@@ -1007,7 +1009,7 @@ class _ProjectPageState extends State<ProjectPage> {
   }
 
   void _openPath(PathPlannerPath path,
-      {GhostAuto? ghostAuto, num ghostTimeOffset = 0}) async {
+      {List<GhostAuto> ghostAutos = const [], num ghostTimeOffset = 0}) async {
     await Navigator.push(
       this.context,
       MaterialPageRoute(
@@ -1021,7 +1023,7 @@ class _ProjectPageState extends State<ProjectPage> {
           telemetry: widget.telemetry,
           hotReload: widget.hotReload,
           simulatePath: widget.simulatePath,
-          ghostAuto: ghostAuto,
+          ghostAutos: ghostAutos,
           ghostTimeOffset: ghostTimeOffset,
           onPathChanged: () {
             // Update the linked rotation for the start/end states
@@ -1505,6 +1507,7 @@ class _ProjectPageState extends State<ProjectPage> {
               shortcuts: widget.shortcuts,
               telemetry: widget.telemetry,
               hotReload: widget.hotReload,
+              ghostSyncService: widget.ghostSyncService,
             ),
           ),
         );

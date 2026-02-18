@@ -22,7 +22,7 @@ class PathEditorPage extends StatefulWidget {
   final bool hotReload;
   final bool simulatePath;
   final VoidCallback? onPathChanged;
-  final GhostAuto? ghostAuto;
+  final List<GhostAuto> ghostAutos;
   final num ghostTimeOffset;
 
   const PathEditorPage({
@@ -37,7 +37,7 @@ class PathEditorPage extends StatefulWidget {
     this.hotReload = false,
     this.simulatePath = false,
     this.onPathChanged,
-    this.ghostAuto,
+    this.ghostAutos = const [],
     this.ghostTimeOffset = 0,
   });
 
@@ -59,7 +59,7 @@ class _PathEditorPageState extends State<PathEditorPage> {
       hotReload: widget.hotReload,
       simulate: widget.simulatePath,
       onPathChanged: widget.onPathChanged,
-      ghostAuto: widget.ghostAuto,
+      ghostAutos: widget.ghostAutos,
       ghostTimeOffset: widget.ghostTimeOffset,
     );
 

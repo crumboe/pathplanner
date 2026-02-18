@@ -5,13 +5,17 @@ import 'package:pathplanner/auto/pathplanner_auto.dart';
 import 'package:pathplanner/widgets/editor/tree_widgets/auto_tree.dart';
 import 'package:pathplanner/widgets/editor/tree_widgets/commands/command_group_widget.dart';
 import 'package:pathplanner/widgets/editor/tree_widgets/reset_odom_tree.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:undo/undo.dart';
 
 void main() {
   late PathPlannerAuto auto;
   bool sideSwapped = false;
+  late SharedPreferences prefs;
 
-  setUp(() {
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    prefs = await SharedPreferences.getInstance();
     auto = PathPlannerAuto.defaultAuto(
       autoDir: '/autos',
       fs: MemoryFileSystem(),
@@ -26,6 +30,7 @@ void main() {
           auto: auto,
           undoStack: ChangeStack(),
           allPathNames: const [],
+          prefs: prefs,
         ),
       ),
     ));
@@ -40,6 +45,7 @@ void main() {
           auto: auto,
           undoStack: ChangeStack(),
           allPathNames: const [],
+          prefs: prefs,
           onSideSwapped: () => sideSwapped = true,
         ),
       ),
@@ -61,6 +67,7 @@ void main() {
           auto: auto,
           undoStack: ChangeStack(),
           allPathNames: const [],
+          prefs: prefs,
         ),
       ),
     ));
@@ -75,6 +82,7 @@ void main() {
           auto: auto,
           undoStack: ChangeStack(),
           allPathNames: const [],
+          prefs: prefs,
         ),
       ),
     ));

@@ -5,6 +5,7 @@ import 'package:pathplanner/widgets/custom_appbar.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:file/memory.dart';
 import 'package:pathplanner/services/pplib_telemetry.dart';
+import 'package:pathplanner/services/ghost_sync_service.dart';
 import 'package:pathplanner/services/update_checker.dart';
 import 'package:undo/undo.dart';
 
@@ -34,6 +35,7 @@ void main() {
         undoStack: undoStack,
         telemetry: telemetry,
         updateChecker: updateChecker,
+        ghostSyncService: GhostSyncService(displayName: 'Test'),
       ),
     ));
 

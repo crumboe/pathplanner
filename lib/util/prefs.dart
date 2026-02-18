@@ -49,6 +49,9 @@ class PrefsKeys {
   static const String bumperOffsetX = 'bumperOffsetX';
   static const String bumperOffsetY = 'bumperOffsetY';
   static const String robotFeatures = 'robotFeatures';
+  static const String lastGhostImportPath = 'lastGhostImportPath';
+  static const String ghostSyncEnabled = 'ghostSyncEnabled';
+  static const String ghostSyncDisplayName = 'ghostSyncDisplayName';
 }
 
 class Defaults {
@@ -100,4 +103,6 @@ class Defaults {
   static const double bumperOffsetX = 0.0;
   static const double bumperOffsetY = 0.0;
   static const List<String> robotFeatures = [];
+  static const bool ghostSyncEnabled = false;
+  static const String ghostSyncDisplayName = '';
 }

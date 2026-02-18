@@ -8,6 +8,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:pathplanner/services/log.dart';
+import 'package:pathplanner/services/ghost_sync_service.dart';
 import 'package:pathplanner/services/pplib_telemetry.dart';
 import 'package:pathplanner/services/update_checker.dart';
 import 'package:pathplanner/util/prefs.dart';
@@ -109,12 +110,24 @@ void main() async {
     PPLibTelemetry telemetry =
         PPLibTelemetry(serverBaseAddress: telemetryAddress);
 
+    String syncDisplayName = prefs.getString(PrefsKeys.ghostSyncDisplayName) ??
+        Defaults.ghostSyncDisplayName;
+    GhostSyncService ghostSyncService =
+        GhostSyncService(displayName: syncDisplayName);
+
+    // Auto-enable sync if it was enabled last session
+    if (prefs.getBool(PrefsKeys.ghostSyncEnabled) ??
+        Defaults.ghostSyncEnabled) {
+      ghostSyncService.enable();
+    }
+
     runApp(PathPlanner(
       appVersion: packageInfo.version,
       prefs: prefs,
       undoStack: ChangeStack(),
       telemetry: telemetry,
       updateChecker: UpdateChecker(),
+      ghostSyncService: ghostSyncService,
     ));
   });
 }
@@ -126,6 +139,7 @@ class PathPlanner extends StatefulWidget {
   final ChangeStack undoStack;
   final PPLibTelemetry telemetry;
   final UpdateChecker updateChecker;
+  final GhostSyncService ghostSyncService;
 
   const PathPlanner({
     required this.appVersion,
@@ -133,6 +147,7 @@ class PathPlanner extends StatefulWidget {
     required this.undoStack,
     required this.telemetry,
     required this.updateChecker,
+    required this.ghostSyncService,
     this.fs = const LocalFileSystem(),
     super.key,
   });
@@ -161,6 +176,7 @@ class _PathPlannerState extends State<PathPlanner> {
         undoStack: widget.undoStack,
         telemetry: widget.telemetry,
         updateChecker: widget.updateChecker,
+        ghostSyncService: widget.ghostSyncService,
         onTeamColorChanged: (Color color) {
           setState(() {
             _teamColor = color;

@@ -37,7 +37,7 @@ class SplitPathEditor extends StatefulWidget {
   final bool hotReload;
   final bool simulate;
   final VoidCallback? onPathChanged;
-  final GhostAuto? ghostAuto;
+  final List<GhostAuto> ghostAutos;
   final num ghostTimeOffset;
 
   const SplitPathEditor({
@@ -49,7 +49,7 @@ class SplitPathEditor extends StatefulWidget {
     this.hotReload = false,
     this.simulate = false,
     this.onPathChanged,
-    this.ghostAuto,
+    this.ghostAutos = const [],
     this.ghostTimeOffset = 0,
     super.key,
   });
@@ -476,11 +476,17 @@ class _SplitPathEditorState extends State<SplitPathEditor>
                           animation: _previewController.view,
                           prefs: widget.prefs,
                           optimizedPath: _optimizedPath,
-                          ghostAuto: widget.ghostAuto,
+                          ghostAutos: widget.ghostAutos,
                           ghostTimeOffset: widget.ghostTimeOffset,
                         ),
                       ),
                     ),
+                    if (widget.ghostAutos.isNotEmpty)
+                      Positioned(
+                        top: 4,
+                        left: 4,
+                        child: _buildGhostLegend(),
+                      ),
                   ],
                 ),
               ),
@@ -745,6 +751,48 @@ class _SplitPathEditorState extends State<SplitPathEditor>
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildGhostLegend() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.black54,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (int i = 0; i < widget.ghostAutos.length; i++)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: GhostAuto.ghostColors[i],
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    widget.ghostAutos[i].displayLabel,
+                    style: TextStyle(
+                      color: GhostAuto.ghostColors[i],
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
     );
   }
 

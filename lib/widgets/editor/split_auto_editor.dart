@@ -1,9 +1,13 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:multi_split_view/multi_split_view.dart';
+import 'package:path/path.dart' show join;
 import 'package:pathplanner/auto/ghost_auto.dart';
 import 'package:pathplanner/auto/pathplanner_auto.dart';
 import 'package:pathplanner/pages/auto_editor_page.dart';
 import 'package:pathplanner/path/choreo_path.dart';
+import 'package:pathplanner/services/ghost_sync_service.dart';
 import 'package:pathplanner/services/log.dart';
 import 'package:pathplanner/trajectory/auto_simulator.dart';
 import 'package:pathplanner/trajectory/config.dart';
@@ -30,6 +34,7 @@ class SplitAutoEditor extends StatefulWidget {
   final FieldImage fieldImage;
   final ChangeStack undoStack;
   final Function(EditPathResult)? onEditPathPressed;
+  final GhostSyncService? ghostSyncService;
 
   const SplitAutoEditor({
     required this.prefs,
@@ -41,6 +46,7 @@ class SplitAutoEditor extends StatefulWidget {
     required this.undoStack,
     this.onAutoChanged,
     this.onEditPathPressed,
+    this.ghostSyncService,
     super.key,
   });
 
@@ -55,9 +61,15 @@ class _SplitAutoEditorState extends State<SplitAutoEditor>
   late bool _treeOnRight;
   PathPlannerTrajectory? _simTraj;
   bool _paused = false;
-  GhostAuto? _ghostAuto;
+  List<GhostAuto> _ghostAutos = [];
 
   late AnimationController _previewController;
+
+  /// Combined local + network ghosts for painting.
+  List<GhostAuto> get _allGhosts {
+    final networkGhosts = widget.ghostSyncService?.peerGhosts.value ?? [];
+    return [..._ghostAutos, ...networkGhosts];
+  }
 
   @override
   void initState() {
@@ -82,6 +94,35 @@ class _SplitAutoEditorState extends State<SplitAutoEditor>
     ];
 
     WidgetsBinding.instance.addPostFrameCallback((_) => _simulateAuto());
+
+    // Listen to network ghost changes
+    widget.ghostSyncService?.peerGhosts.addListener(_onPeerGhostsChanged);
+    // Listen to connection state changes so we can re-publish when connected
+    widget.ghostSyncService?.addListener(_onSyncStateChanged);
+  }
+
+  void _onPeerGhostsChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  GhostSyncState? _lastSyncState;
+
+  void _onSyncStateChanged() {
+    if (mounted) {
+      final currentState = widget.ghostSyncService?.state;
+      // When sync becomes connected, re-publish so the peer gets our ghost
+      if (currentState == GhostSyncState.connected &&
+          _lastSyncState != GhostSyncState.connected) {
+        _publishGhostToSync();
+      }
+      // Only rebuild if the state actually changed
+      if (currentState != _lastSyncState) {
+        _lastSyncState = currentState;
+        setState(() {});
+      }
+    }
   }
 
   @override
@@ -93,10 +134,23 @@ class _SplitAutoEditorState extends State<SplitAutoEditor>
         widget.autoChoreoPaths != oldWidget.autoChoreoPaths) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _simulateAuto());
     }
+
+    // Re-attach sync listeners if the service instance changed
+    if (widget.ghostSyncService != oldWidget.ghostSyncService) {
+      oldWidget.ghostSyncService?.peerGhosts
+          .removeListener(_onPeerGhostsChanged);
+      oldWidget.ghostSyncService?.removeListener(_onSyncStateChanged);
+      widget.ghostSyncService?.peerGhosts.addListener(_onPeerGhostsChanged);
+      widget.ghostSyncService?.addListener(_onSyncStateChanged);
+    }
   }
 
   @override
   void dispose() {
+    widget.ghostSyncService?.peerGhosts.removeListener(_onPeerGhostsChanged);
+    widget.ghostSyncService?.removeListener(_onSyncStateChanged);
+    // Clear our published ghost when leaving the auto editor
+    widget.ghostSyncService?.publishGhost(null);
     _previewController.dispose();
     super.dispose();
   }
@@ -130,8 +184,14 @@ class _SplitAutoEditorState extends State<SplitAutoEditor>
                             simulatedPath: _simTraj,
                             animation: _previewController.view,
                             prefs: widget.prefs,
-                            ghostAuto: _ghostAuto)),
+                            ghostAutos: _allGhosts)),
                   ),
+                  if (_allGhosts.isNotEmpty)
+                    Positioned(
+                      top: 4,
+                      left: 4,
+                      child: _buildGhostLegend(),
+                    ),
                 ],
               ),
             ),
@@ -184,14 +244,23 @@ class _SplitAutoEditorState extends State<SplitAutoEditor>
                     auto: widget.auto,
                     autoRuntime: _simTraj?.states.last.timeSeconds,
                     allPathNames: widget.allPathNames,
-                    ghostAutoName: _ghostAuto?.name,
+                    prefs: widget.prefs,
+                    ghostAutos: _allGhosts,
+                    ghostSyncService: widget.ghostSyncService,
                     onExportGhostAuto: () => _exportGhostAuto(),
                     onImportGhostAuto: () => _importGhostAuto(),
-                    onClearGhostAuto: () {
+                    onClearGhostAuto: (index) {
                       setState(() {
-                        _ghostAuto = null;
+                        _ghostAutos.removeAt(index);
                       });
                     },
+                    onClearAllGhosts: _ghostAutos.isNotEmpty
+                        ? () {
+                            setState(() {
+                              _ghostAutos.clear();
+                            });
+                          }
+                        : null,
                     onRenderAuto: () {
                       if (_simTraj != null) {
                         showDialog(
@@ -230,7 +299,7 @@ class _SplitAutoEditorState extends State<SplitAutoEditor>
                           _computeGhostTimeOffset(pathName);
                       widget.onEditPathPressed?.call(EditPathResult(
                         pathName: pathName,
-                        ghostAuto: _ghostAuto,
+                        ghostAutos: _allGhosts,
                         ghostTimeOffset: timeOffset,
                       ));
                     },
@@ -247,6 +316,61 @@ class _SplitAutoEditorState extends State<SplitAutoEditor>
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildGhostLegend() {
+    final allGhosts = _allGhosts;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.black54,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (int i = 0; i < allGhosts.length; i++)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (allGhosts[i].isNetworkGhost)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 4),
+                      child: Icon(
+                        Icons.wifi,
+                        size: 14,
+                        color: GhostAuto.ghostColors[
+                            i % GhostAuto.ghostColors.length],
+                      ),
+                    ),
+                  Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: GhostAuto.ghostColors[
+                          i % GhostAuto.ghostColors.length],
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    allGhosts[i].displayLabel,
+                    style: TextStyle(
+                      color: GhostAuto.ghostColors[
+                          i % GhostAuto.ghostColors.length],
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
     );
   }
 
@@ -341,14 +465,44 @@ class _SplitAutoEditorState extends State<SplitAutoEditor>
   }
 
   void _importGhostAuto() {
-    GhostAuto.importFromFile().then((ghost) {
+    if (_ghostAutos.length >= 2) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+              'Maximum of 2 ghost autos. Remove one first.'),
+          behavior: SnackBarBehavior.floating,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+      );
+      return;
+    }
+
+    // Default to the ghosts directory in the project if it exists
+    String? ghostsDir;
+    String? projectDir = widget.prefs.getString(PrefsKeys.currentProjectDir);
+    if (projectDir != null) {
+      // Check WPILib project structure vs flat
+      String ppDir;
+      if (File(join(projectDir, 'build.gradle')).existsSync()) {
+        ppDir = join(projectDir, 'src', 'main', 'deploy', 'pathplanner');
+      } else {
+        ppDir = join(projectDir, 'deploy', 'pathplanner');
+      }
+      String candidate = join(ppDir, 'ghosts');
+      if (Directory(candidate).existsSync()) {
+        ghostsDir = candidate;
+      }
+    }
+
+    GhostAuto.importFromFile(initialDirectory: ghostsDir).then((ghost) {
       if (ghost != null && mounted) {
         setState(() {
-          _ghostAuto = ghost;
+          _ghostAutos.add(ghost);
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Loaded reference auto: ${ghost.name}'),
+            content: Text('Loaded reference auto: ${ghost.displayLabel}'),
             behavior: SnackBarBehavior.floating,
             shape:
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -413,6 +567,9 @@ class _SplitAutoEditorState extends State<SplitAutoEditor>
         _simTraj = simPath;
       });
 
+      // Publish ghost to sync peers
+      _publishGhostToSync();
+
       try {
         if (!_paused) {
           _previewController.stop();
@@ -436,6 +593,22 @@ class _SplitAutoEditorState extends State<SplitAutoEditor>
       // Trajectory failed to generate. Notify the user
       _showGenerationFailedError();
     }
+  }
+
+  void _publishGhostToSync() {
+    if (widget.ghostSyncService == null) return;
+    if (_simTraj == null || _simTraj!.states.isEmpty) return;
+
+    RobotConfig config = RobotConfig.fromPrefs(widget.prefs);
+    GhostAuto ghost = GhostAuto(
+      name: widget.auto.name,
+      trajectory: _simTraj!,
+      bumperSize: config.bumperSize,
+      bumperOffset: config.bumperOffset,
+      moduleLocations: config.moduleLocations,
+      holonomic: config.holonomic,
+    );
+    widget.ghostSyncService!.publishGhost(ghost);
   }
 
   void _showGenerationFailedError() {

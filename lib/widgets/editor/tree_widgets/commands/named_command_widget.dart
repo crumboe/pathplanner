@@ -47,6 +47,7 @@ class _NamedCommandWidgetState extends State<NamedCommandWidget> {
             Expanded(
               child: DropdownButtonHideUnderline(
                 child: DropdownButton2<String>(
+                  isExpanded: true,
                   hint: const Text('Command Name'),
                   value: widget.command.name,
                   items: ProjectPage.events.isEmpty

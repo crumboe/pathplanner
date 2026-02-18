@@ -19,6 +19,7 @@ import 'package:pathplanner/trajectory/auto_simulator.dart';
 import 'package:pathplanner/trajectory/config.dart';
 import 'package:pathplanner/trajectory/trajectory.dart';
 import 'package:pathplanner/services/log.dart';
+import 'package:pathplanner/services/ghost_sync_service.dart';
 import 'package:pathplanner/services/pplib_telemetry.dart';
 import 'package:pathplanner/services/update_checker.dart';
 import 'package:pathplanner/util/prefs.dart';
@@ -39,6 +40,7 @@ class HomePage extends StatefulWidget {
   final ChangeStack undoStack;
   final PPLibTelemetry telemetry;
   final UpdateChecker updateChecker;
+  final GhostSyncService ghostSyncService;
 
   const HomePage({
     required this.appVersion,
@@ -48,6 +50,7 @@ class HomePage extends StatefulWidget {
     required this.undoStack,
     required this.telemetry,
     required this.updateChecker,
+    required this.ghostSyncService,
     super.key,
   });
 
@@ -317,43 +320,70 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       alignment: Alignment.bottomLeft,
       child: Padding(
         padding: const EdgeInsets.only(bottom: 12.0, left: 8.0, right: 8.0),
-        child: Wrap(
-          spacing: 6,
-          runSpacing: 6,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildButton(
-              onPressed: () => launchUrl(Uri.parse('https://pathplanner.dev')),
-              icon: const Icon(Icons.description),
-              label: 'Docs',
-              backgroundColor: colorScheme.primaryContainer,
-              foregroundColor: colorScheme.onPrimaryContainer,
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                _buildButton(
+                  onPressed: () =>
+                      launchUrl(Uri.parse('https://pathplanner.dev')),
+                  icon: const Icon(Icons.description),
+                  label: 'Docs',
+                  backgroundColor: colorScheme.primaryContainer,
+                  foregroundColor: colorScheme.onPrimaryContainer,
+                ),
+                _buildButton(
+                  onPressed: () {
+                    Navigator.pop(this.context);
+                    _showSettingsDialog();
+                  },
+                  icon: Icon(
+                    Icons.settings,
+                    color: colorScheme.onSurface,
+                  ),
+                  label: 'Settings',
+                  backgroundColor: colorScheme.surfaceContainer,
+                  foregroundColor: colorScheme.onSurface,
+                  surfaceTintColor: colorScheme.surfaceTint,
+                ),
+              ],
             ),
-            _buildButton(
-              onPressed: () {
-                Navigator.pop(this.context);
-                _showSettingsDialog();
-              },
-              icon: Icon(
-                Icons.settings,
-                color: colorScheme.onSurface,
-              ),
-              label: 'Settings',
-              backgroundColor: colorScheme.surfaceContainer,
-              foregroundColor: colorScheme.onSurface,
-              surfaceTintColor: colorScheme.surfaceTint,
-            ),
-            _buildButton(
-              onPressed: () {
-                Navigator.pop(this.context);
-                _exportAllGhostAutos();
-              },
-              icon: Icon(
-                Icons.upload_file,
-                color: colorScheme.onTertiaryContainer,
-              ),
-              label: 'Export Ghosts',
-              backgroundColor: colorScheme.tertiaryContainer,
-              foregroundColor: colorScheme.onTertiaryContainer,
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                _buildButton(
+                  onPressed: () {
+                    Navigator.pop(this.context);
+                    _exportAllGhostAutos();
+                  },
+                  icon: Icon(
+                    Icons.upload_file,
+                    color: colorScheme.onTertiaryContainer,
+                  ),
+                  label: 'Export Ghosts',
+                  backgroundColor: colorScheme.tertiaryContainer,
+                  foregroundColor: colorScheme.onTertiaryContainer,
+                ),
+                _buildButton(
+                  onPressed: () {
+                    Navigator.pop(this.context);
+                    _importGhostsFromProject();
+                  },
+                  icon: Icon(
+                    Icons.download,
+                    color: colorScheme.onTertiaryContainer,
+                  ),
+                  label: 'Import Ghosts',
+                  backgroundColor: colorScheme.tertiaryContainer,
+                  foregroundColor: colorScheme.onTertiaryContainer,
+                ),
+              ],
             ),
           ],
         ),
@@ -459,6 +489,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       _saveProjectSettingsToFile(_projectDir!),
                   simulatePath: true,
                   watchChorDir: true,
+                  ghostSyncService: widget.ghostSyncService,
                 ),
                 TelemetryPage(
                   fieldImage: _fieldImage ?? FieldImage.defaultField,
@@ -812,6 +843,277 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     }
   }
 
+  void _importGhostsFromProject() async {
+    if (_projectDir == null) return;
+
+    // Show dialog to collect team name and source folder
+    String lastPath =
+        widget.prefs.getString(PrefsKeys.lastGhostImportPath) ?? '';
+
+    final result = await showDialog<_GhostImportParams>(
+      context: this.context,
+      builder: (BuildContext context) {
+        final teamController = TextEditingController();
+        final pathController = TextEditingController(text: lastPath);
+        final formKey = GlobalKey<FormState>();
+
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            ColorScheme colorScheme = Theme.of(context).colorScheme;
+            return AlertDialog(
+              backgroundColor: colorScheme.surface,
+              surfaceTintColor: colorScheme.surfaceTint,
+              title: const Text('Import Ghost Autos from Project'),
+              content: SizedBox(
+                width: 450,
+                child: Form(
+                  key: formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Point to another team\'s pathplanner deploy folder '
+                        'and their autos will be simulated and saved as ghosts.',
+                        style: TextStyle(fontSize: 13),
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: teamController,
+                        decoration: const InputDecoration(
+                          labelText: 'Team name or number',
+                          hintText: 'e.g. 3015 or Ranger Robotics',
+                          border: OutlineInputBorder(),
+                        ),
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Required — used as the folder name';
+                          }
+                          // Disallow characters that are bad for folder names
+                          if (RegExp(r'[<>:"/\\|?*]').hasMatch(value)) {
+                            return 'Avoid special characters: < > : " / \\ | ? *';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: pathController,
+                              decoration: const InputDecoration(
+                                labelText: 'PathPlanner deploy folder',
+                                hintText: '...deploy/pathplanner',
+                                border: OutlineInputBorder(),
+                              ),
+                              validator: (value) {
+                                if (value == null || value.trim().isEmpty) {
+                                  return 'Required';
+                                }
+                                return null;
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          IconButton(
+                            icon: const Icon(Icons.folder_open),
+                            tooltip: 'Browse',
+                            onPressed: () async {
+                              String? dir = await getDirectoryPath(
+                                confirmButtonText:
+                                    'Select pathplanner folder',
+                                initialDirectory: pathController.text.isNotEmpty
+                                    ? pathController.text
+                                    : (_projectDir?.path ?? ''),
+                              );
+                              if (dir != null) {
+                                setDialogState(() {
+                                  pathController.text = dir;
+                                });
+                              }
+                            },
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(null),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    if (formKey.currentState!.validate()) {
+                      Navigator.of(context).pop(_GhostImportParams(
+                        teamName: teamController.text.trim(),
+                        sourcePath: pathController.text.trim(),
+                      ));
+                    }
+                  },
+                  child: const Text('Import'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (result == null) return;
+
+    String teamName = result.teamName;
+    String sourcePath = result.sourcePath;
+
+    // Remember the source path for next time
+    widget.prefs.setString(PrefsKeys.lastGhostImportPath, sourcePath);
+
+    // Validate source folder structure
+    Directory sourceDir = fs.directory(sourcePath);
+    if (!sourceDir.existsSync()) {
+      if (mounted) {
+        ScaffoldMessenger.of(this.context).showSnackBar(
+          SnackBar(
+            content: Text('Folder not found: $sourcePath'),
+            behavior: SnackBarBehavior.floating,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+        );
+      }
+      return;
+    }
+
+    Directory foreignPathsDir = fs.directory(join(sourcePath, 'paths'));
+    Directory foreignAutosDir = fs.directory(join(sourcePath, 'autos'));
+
+    if (!foreignPathsDir.existsSync() || !foreignAutosDir.existsSync()) {
+      if (mounted) {
+        ScaffoldMessenger.of(this.context).showSnackBar(
+          SnackBar(
+            content: const Text(
+                'Could not find paths/ and autos/ subfolders. '
+                'Make sure you selected the pathplanner deploy folder.'),
+            behavior: SnackBarBehavior.floating,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+        );
+      }
+      return;
+    }
+
+    // Read foreign settings.json for robot config
+    RobotConfig foreignConfig;
+    File foreignSettings = fs.file(join(sourcePath, 'settings.json'));
+    if (foreignSettings.existsSync()) {
+      try {
+        Map<String, dynamic> json =
+            jsonDecode(await foreignSettings.readAsString());
+        foreignConfig = RobotConfig.fromSettingsJson(json);
+      } catch (ex) {
+        Log.error('Failed to parse foreign settings.json', ex);
+        foreignConfig = RobotConfig.fromPrefs(widget.prefs);
+      }
+    } else {
+      // No settings.json — fall back to our own config
+      Log.warning(
+          'No settings.json found in foreign project, using own robot config');
+      foreignConfig = RobotConfig.fromPrefs(widget.prefs);
+    }
+
+    // Load foreign paths and autos
+    List<PathPlannerPath> foreignPaths =
+        await PathPlannerPath.loadAllPathsInDir(foreignPathsDir.path, fs);
+    List<PathPlannerAuto> foreignAutos =
+        await PathPlannerAuto.loadAllAutosInDir(foreignAutosDir.path, fs);
+
+    // Create ghosts output directory: <our_project>/pathplanner/ghosts/<teamname>/
+    Directory ghostsDir =
+        fs.directory(join(_pathplannerDir.path, 'ghosts', teamName));
+    ghostsDir.createSync(recursive: true);
+
+    int exported = 0;
+    int failed = 0;
+
+    for (PathPlannerAuto auto in foreignAutos) {
+      if (auto.choreoAuto) continue;
+
+      try {
+        List<String> pathNames = auto.getAllPathNames();
+        List<PathPlannerPath> autoPaths = [];
+        bool missingPath = false;
+
+        for (String name in pathNames) {
+          try {
+            autoPaths
+                .add(foreignPaths.firstWhere((path) => path.name == name));
+          } catch (_) {
+            Log.warning(
+                'Auto "${auto.name}" references missing path: $name');
+            missingPath = true;
+            break;
+          }
+        }
+
+        if (missingPath || autoPaths.isEmpty) {
+          failed++;
+          continue;
+        }
+
+        PathPlannerTrajectory? simTraj =
+            AutoSimulator.simulateAuto(autoPaths, foreignConfig);
+
+        if (simTraj == null ||
+            !simTraj.getTotalTimeSeconds().isFinite ||
+            simTraj.states.isEmpty) {
+          failed++;
+          continue;
+        }
+
+        GhostAuto ghostAuto = GhostAuto(
+          name: auto.name,
+          teamName: teamName,
+          trajectory: simTraj,
+          bumperSize: foreignConfig.bumperSize,
+          bumperOffset: foreignConfig.bumperOffset,
+          moduleLocations: foreignConfig.moduleLocations,
+          holonomic: foreignConfig.holonomic,
+        );
+
+        String filePath = join(ghostsDir.path, '${auto.name}.ghostauto');
+        bool success = await GhostAuto.exportToPath(ghostAuto, filePath);
+        if (success) {
+          exported++;
+        } else {
+          failed++;
+        }
+      } catch (ex) {
+        Log.error('Failed to import ghost for auto: ${auto.name}', ex);
+        failed++;
+      }
+    }
+
+    if (mounted) {
+      String message =
+          'Imported $exported ghost auto(s) from $teamName';
+      if (failed > 0) message += ' ($failed failed)';
+      message += '\nSaved to ghosts/$teamName/';
+      ScaffoldMessenger.of(this.context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 4),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+      );
+    }
+  }
+
   void _openProjectDialog() async {
     String initialDirectory = _projectDir?.path ?? fs.currentDirectory.path;
     String? projectFolder = await getDirectoryPath(
@@ -889,4 +1191,15 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       _fieldImages.add(FieldImage.custom(fs.file(e.path)));
     }
   }
+}
+
+/// Parameters returned from the ghost import dialog.
+class _GhostImportParams {
+  final String teamName;
+  final String sourcePath;
+
+  const _GhostImportParams({
+    required this.teamName,
+    required this.sourcePath,
+  });
 }
