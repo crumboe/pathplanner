@@ -61,7 +61,8 @@ class PathPainterUtil {
       Color color,
       Color outlineColor,
       List<Feature> features,
-      {bool showDetails = false}) {
+      {bool showDetails = false,
+      double bumperStrokeWidth = 2.0}) {
     Offset center =
         PathPainterUtil.pointToPixelOffset(pose.translation, scale, fieldImage);
 
@@ -92,7 +93,7 @@ class PathPainterUtil {
           PathPainterUtil.metersToPixels(
               -bumperOffset.y.toDouble(), scale, fieldImage)),
       PathPainterUtil.uiPointSizeToPixels(15, scale, fieldImage),
-      2.0,
+      bumperStrokeWidth,
       PathPainterUtil.metersToPixels(0.075, scale, fieldImage),
       canvas,
       color,

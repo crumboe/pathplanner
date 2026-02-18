@@ -25,6 +25,9 @@ class AutoTree extends StatefulWidget {
   final void Function(int index)? onClearGhostAuto;
   final VoidCallback? onClearAllGhosts;
   final List<GhostAuto> ghostAutos;
+  final Set<int> hiddenGhostIndices;
+  final void Function(int index)? onToggleGhostVisibility;
+  final void Function(int index)? onPinGhostAuto;
   final GhostSyncService? ghostSyncService;
 
   const AutoTree({
@@ -44,6 +47,9 @@ class AutoTree extends StatefulWidget {
     this.onClearGhostAuto,
     this.onClearAllGhosts,
     this.ghostAutos = const [],
+    this.hiddenGhostIndices = const {},
+    this.onToggleGhostVisibility,
+    this.onPinGhostAuto,
     this.ghostSyncService,
   });
 
@@ -163,6 +169,46 @@ class _AutoTreeState extends State<AutoTree> {
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
+                        // Visibility toggle
+                        SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: IconButton(
+                            padding: EdgeInsets.zero,
+                            iconSize: 16,
+                            onPressed: () =>
+                                widget.onToggleGhostVisibility?.call(i),
+                            icon: Icon(
+                              widget.hiddenGhostIndices.contains(i)
+                                  ? Icons.visibility_off
+                                  : Icons.visibility,
+                              size: 16,
+                              color: GhostAuto.ghostColors[
+                                  i % GhostAuto.ghostColors.length],
+                            ),
+                            tooltip: widget.hiddenGhostIndices.contains(i)
+                                ? 'Show'
+                                : 'Hide',
+                          ),
+                        ),
+                        // Pin network ghost as local
+                        if (widget.ghostAutos[i].isNetworkGhost)
+                          SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: IconButton(
+                              padding: EdgeInsets.zero,
+                              iconSize: 16,
+                              onPressed: () =>
+                                  widget.onPinGhostAuto?.call(i),
+                              icon: Icon(Icons.push_pin,
+                                  size: 16,
+                                  color: GhostAuto.ghostColors[
+                                      i % GhostAuto.ghostColors.length]),
+                              tooltip: 'Pin (keep after disconnect)',
+                            ),
+                          ),
+                        // Remove local ghost
                         if (!widget.ghostAutos[i].isNetworkGhost)
                           SizedBox(
                             width: 24,
@@ -307,6 +353,9 @@ class _GhostSyncToggleState extends State<_GhostSyncToggle> {
   void _showSyncPanel(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final ipController = TextEditingController();
+    final teamController = TextEditingController(
+      text: widget.service.displayName,
+    );
 
     showDialog(
       context: context,
@@ -321,6 +370,32 @@ class _GhostSyncToggleState extends State<_GhostSyncToggle> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Team # field
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Row(
+                    children: [
+                      const Text('Team #:', style: TextStyle(fontSize: 14)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: teamController,
+                          decoration: InputDecoration(
+                            isDense: true,
+                            hintText: 'e.g. 3015',
+                            border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8)),
+                          ),
+                          onChanged: (value) {
+                            widget.service.setDisplayName(value.trim());
+                            widget.prefs.setString(
+                                PrefsKeys.ghostSyncDisplayName, value.trim());
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
                 if (widget.service.localIp != null)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 8),

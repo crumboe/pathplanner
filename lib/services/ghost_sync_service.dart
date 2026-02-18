@@ -112,8 +112,25 @@ class GhostSyncService extends ChangeNotifier {
       : _displayName = displayName;
 
   /// Update the display name shown to peers.
+  /// Re-broadcasts identity and re-publishes the current ghost so peers
+  /// see the updated team name immediately.
   void setDisplayName(String name) {
     _displayName = name;
+
+    // Re-broadcast identity to all connected peers
+    if (_peerSockets.isNotEmpty) {
+      _broadcastMessage({
+        'type': 'identity',
+        'name': _displayName,
+        'id': _id,
+      });
+
+      // Re-publish the current ghost so peers update the legend
+      if (_myGhost != null) {
+        _doPublish(_myGhost!);
+      }
+    }
+
     notifyListeners();
   }
 

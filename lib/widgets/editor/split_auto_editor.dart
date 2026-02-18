@@ -62,6 +62,7 @@ class _SplitAutoEditorState extends State<SplitAutoEditor>
   PathPlannerTrajectory? _simTraj;
   bool _paused = false;
   List<GhostAuto> _ghostAutos = [];
+  final Set<int> _hiddenGhostIndices = {};
 
   late AnimationController _previewController;
 
@@ -69,6 +70,15 @@ class _SplitAutoEditorState extends State<SplitAutoEditor>
   List<GhostAuto> get _allGhosts {
     final networkGhosts = widget.ghostSyncService?.peerGhosts.value ?? [];
     return [..._ghostAutos, ...networkGhosts];
+  }
+
+  /// Visible ghosts only (filtered by hidden indices) for the painter.
+  List<GhostAuto> get _visibleGhosts {
+    final all = _allGhosts;
+    return [
+      for (int i = 0; i < all.length; i++)
+        if (!_hiddenGhostIndices.contains(i)) all[i],
+    ];
   }
 
   @override
@@ -184,7 +194,7 @@ class _SplitAutoEditorState extends State<SplitAutoEditor>
                             simulatedPath: _simTraj,
                             animation: _previewController.view,
                             prefs: widget.prefs,
-                            ghostAutos: _allGhosts)),
+                            ghostAutos: _visibleGhosts)),
                   ),
                   if (_allGhosts.isNotEmpty)
                     Positioned(
@@ -246,13 +256,63 @@ class _SplitAutoEditorState extends State<SplitAutoEditor>
                     allPathNames: widget.allPathNames,
                     prefs: widget.prefs,
                     ghostAutos: _allGhosts,
+                    hiddenGhostIndices: _hiddenGhostIndices,
                     ghostSyncService: widget.ghostSyncService,
                     onExportGhostAuto: () => _exportGhostAuto(),
                     onImportGhostAuto: () => _importGhostAuto(),
                     onClearGhostAuto: (index) {
                       setState(() {
                         _ghostAutos.removeAt(index);
+                        // Adjust hidden indices when a local ghost is removed
+                        _hiddenGhostIndices.remove(index);
+                        final adjusted = <int>{};
+                        for (int h in _hiddenGhostIndices) {
+                          adjusted.add(h > index ? h - 1 : h);
+                        }
+                        _hiddenGhostIndices
+                          ..clear()
+                          ..addAll(adjusted);
                       });
+                    },
+                    onToggleGhostVisibility: (index) {
+                      setState(() {
+                        if (_hiddenGhostIndices.contains(index)) {
+                          _hiddenGhostIndices.remove(index);
+                        } else {
+                          _hiddenGhostIndices.add(index);
+                        }
+                      });
+                    },
+                    onPinGhostAuto: (index) {
+                      final all = _allGhosts;
+                      if (index < 0 || index >= all.length) return;
+                      final ghost = all[index];
+                      if (!ghost.isNetworkGhost) return;
+                      // Convert to a local (non-network) ghost
+                      final pinned = GhostAuto(
+                        name: ghost.name,
+                        teamName: ghost.teamName,
+                        isNetworkGhost: false,
+                        trajectory: ghost.trajectory,
+                        bumperSize: ghost.bumperSize,
+                        bumperOffset: ghost.bumperOffset,
+                        moduleLocations: ghost.moduleLocations,
+                        holonomic: ghost.holonomic,
+                      );
+                      setState(() {
+                        _ghostAutos.add(pinned);
+                      });
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                                'Pinned ${ghost.displayLabel} as local reference'),
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8)),
+                          ),
+                        );
+                      }
                     },
                     onClearAllGhosts: _ghostAutos.isNotEmpty
                         ? () {

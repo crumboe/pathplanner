@@ -201,6 +201,9 @@ class PathPainter extends CustomPainter {
     // Paint ghost autos (reference autos from other robots) behind the main preview
     _paintGhostAutos(canvas, size);
 
+    // Paint collision warnings between ghosts and main trajectory
+    _paintGhostCollisions(canvas);
+
     if (previewTime != null) {
       TrajectoryState state = simulatedPath!.sample(previewTime!.value);
       Rotation2d rotation = state.pose.rotation;
@@ -243,6 +246,7 @@ class PathPainter extends CustomPainter {
         robotFeatures,
         showDetails: prefs.getBool(PrefsKeys.showRobotDetails) ??
             Defaults.showRobotDetails,
+        bumperStrokeWidth: 4.0,
       );
     }
   }
@@ -409,6 +413,151 @@ class PathPainter extends CustomPainter {
         paint);
   }
 
+  /// Detect and paint collision warnings where two robots overlap in both
+  /// position and time. Checks main trajectory vs each ghost, and each ghost
+  /// pair. Uses bumper bounding-circle approximation for speed.
+  void _paintGhostCollisions(Canvas canvas) {
+    if (ghostAutos.isEmpty) return;
+
+    // Build a list of all trajectories to compare (main + ghosts)
+    // Each entry: (trajectory, bumperRadius, timeOffset, colorIndex)
+    final List<_CollisionEntry> entries = [];
+
+    // Main robot trajectory
+    if (simulatedPath != null && simulatedPath!.states.isNotEmpty) {
+      num mainRadius = sqrt(
+              robotConfig.bumperSize.width * robotConfig.bumperSize.width +
+                  robotConfig.bumperSize.height *
+                      robotConfig.bumperSize.height) /
+          2.0;
+      entries.add(_CollisionEntry(
+        trajectory: simulatedPath!,
+        bumperRadius: mainRadius,
+        timeOffset: 0,
+        colorIndex: -1, // main robot
+        sampleFn: (num t) => simulatedPath!.sample(t),
+      ));
+    }
+
+    // Ghost trajectories
+    for (int gi = 0; gi < ghostAutos.length; gi++) {
+      final ghost = ghostAutos[gi];
+      if (ghost.trajectory.states.isEmpty) continue;
+      num ghostRadius = sqrt(
+              ghost.bumperSize.width * ghost.bumperSize.width +
+                  ghost.bumperSize.height * ghost.bumperSize.height) /
+          2.0;
+      entries.add(_CollisionEntry(
+        trajectory: ghost.trajectory,
+        bumperRadius: ghostRadius,
+        timeOffset: ghostTimeOffset,
+        colorIndex: gi,
+        sampleFn: (num t) => ghost.sampleLinear(t),
+      ));
+    }
+
+    if (entries.length < 2) return;
+
+    // Collision warning paint
+    const Color warningColor = Color(0xFFFF0000);
+    final warningPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..color = warningColor
+      ..strokeWidth = 2.5;
+    final warningFillPaint = Paint()
+      ..style = PaintingStyle.fill
+      ..color = const Color(0x44FF0000);
+    final warningIconPaint = Paint()
+      ..style = PaintingStyle.fill
+      ..color = warningColor;
+
+    // Check every pair of entries for time-position overlap.
+    // Sample at 0.1s intervals for performance.
+    const num sampleDt = 0.1;
+    final Set<String> paintedPositions = {}; // avoid duplicate markers
+
+    for (int a = 0; a < entries.length; a++) {
+      for (int b = a + 1; b < entries.length; b++) {
+        final ea = entries[a];
+        final eb = entries[b];
+
+        // Find overlapping time range
+        num aStart = ea.trajectory.states.first.timeSeconds + ea.timeOffset;
+        num aEnd = ea.trajectory.states.last.timeSeconds + ea.timeOffset;
+        num bStart = eb.trajectory.states.first.timeSeconds + eb.timeOffset;
+        num bEnd = eb.trajectory.states.last.timeSeconds + eb.timeOffset;
+
+        num overlapStart = aStart > bStart ? aStart : bStart;
+        num overlapEnd = aEnd < bEnd ? aEnd : bEnd;
+
+        if (overlapStart >= overlapEnd) continue; // No time overlap
+
+        num collisionThreshold = ea.bumperRadius + eb.bumperRadius;
+        bool inCollision = false;
+
+        for (num t = overlapStart; t <= overlapEnd; t += sampleDt) {
+          // Sample both trajectories at time t (adjusting for offsets)
+          TrajectoryState stateA = ea.sampleFn(t - ea.timeOffset);
+          TrajectoryState stateB = eb.sampleFn(t - eb.timeOffset);
+
+          num dist = stateA.pose.translation
+              .getDistance(stateB.pose.translation);
+
+          if (dist < collisionThreshold) {
+            if (!inCollision) {
+              inCollision = true;
+              // Paint collision marker at midpoint
+              Translation2d midpoint = Translation2d(
+                (stateA.pose.translation.x + stateB.pose.translation.x) / 2,
+                (stateA.pose.translation.y + stateB.pose.translation.y) / 2,
+              );
+              String posKey =
+                  '${(midpoint.x * 10).round()},${(midpoint.y * 10).round()}';
+              if (!paintedPositions.contains(posKey)) {
+                paintedPositions.add(posKey);
+                Offset center = PathPainterUtil.pointToPixelOffset(
+                    midpoint, scale, fieldImage);
+                double markerRadius =
+                    PathPainterUtil.uiPointSizeToPixels(25, scale, fieldImage);
+
+                // Red translucent circle
+                canvas.drawCircle(center, markerRadius, warningFillPaint);
+                // Red outline
+                canvas.drawCircle(center, markerRadius, warningPaint);
+                // Warning exclamation mark
+                _paintWarningIcon(canvas, center, markerRadius * 0.6,
+                    warningIconPaint);
+              }
+            }
+          } else {
+            inCollision = false;
+          }
+        }
+      }
+    }
+  }
+
+  /// Paint a simple exclamation mark (!) warning icon.
+  void _paintWarningIcon(
+      Canvas canvas, Offset center, double size, Paint paint) {
+    // Exclamation line
+    double lineTop = center.dy - size * 0.5;
+    double lineBottom = center.dy + size * 0.15;
+    double lineWidth = size * 0.22;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(
+            center.dx - lineWidth / 2, lineTop, lineWidth, lineBottom - lineTop),
+        Radius.circular(lineWidth / 2),
+      ),
+      paint,
+    );
+    // Dot
+    double dotY = center.dy + size * 0.4;
+    canvas.drawCircle(Offset(center.dx, dotY), lineWidth * 0.6, paint);
+  }
+
+
   void _paintChoreoWaypoint(
       TrajectoryState state, Canvas canvas, Color color, double scale) {
     var paint = Paint()
@@ -439,8 +588,8 @@ class PathPainter extends CustomPainter {
         robotConfig.bumperOffset,
         scale,
         canvas,
-        color.withAlpha(125),
-        colorScheme.surfaceContainer,
+        color.withAlpha(50),
+        colorScheme.surfaceContainer.withAlpha(40),
         robotFeatures);
   }
 
@@ -700,13 +849,13 @@ class PathPainter extends CustomPainter {
       if (path.pathPoints[i].rotationTarget != null &&
           path.pathPoints[i].rotationTarget!.displayInEditor) {
         RotationTarget target = path.pathPoints[i].rotationTarget!;
-        Color rotationColor = Colors.grey[700]!;
+        Color rotationColor = Colors.grey[700]!.withAlpha(60);
         if (selectedRotTarget != null &&
             path.rotationTargets[selectedRotTarget!] == target) {
-          rotationColor = Colors.orange;
+          rotationColor = Colors.orange.withAlpha(80);
         } else if (hoveredRotTarget != null &&
             path.rotationTargets[hoveredRotTarget!] == target) {
-          rotationColor = Colors.deepPurpleAccent;
+          rotationColor = Colors.deepPurpleAccent.withAlpha(80);
         }
 
         PathPainterUtil.paintRobotOutline(
@@ -717,7 +866,7 @@ class PathPainter extends CustomPainter {
             scale,
             canvas,
             rotationColor,
-            colorScheme.surfaceContainer,
+            colorScheme.surfaceContainer.withAlpha(40),
             robotFeatures);
       }
     }
@@ -729,8 +878,8 @@ class PathPainter extends CustomPainter {
         robotConfig.bumperOffset,
         scale,
         canvas,
-        Colors.green.withAlpha(125),
-        colorScheme.surfaceContainer,
+        Colors.green.withAlpha(50),
+        colorScheme.surfaceContainer.withAlpha(40),
         robotFeatures);
 
     PathPainterUtil.paintRobotOutline(
@@ -741,8 +890,8 @@ class PathPainter extends CustomPainter {
         robotConfig.bumperOffset,
         scale,
         canvas,
-        Colors.red.withAlpha(125),
-        colorScheme.surfaceContainer,
+        Colors.red.withAlpha(50),
+        colorScheme.surfaceContainer.withAlpha(40),
         robotFeatures);
   }
 
@@ -955,4 +1104,21 @@ class PathPainter extends CustomPainter {
       canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
     }
   }
+}
+
+/// Helper class for collision detection between trajectories.
+class _CollisionEntry {
+  final PathPlannerTrajectory trajectory;
+  final num bumperRadius;
+  final num timeOffset;
+  final int colorIndex; // -1 = main robot
+  final TrajectoryState Function(num t) sampleFn;
+
+  const _CollisionEntry({
+    required this.trajectory,
+    required this.bumperRadius,
+    required this.timeOffset,
+    required this.colorIndex,
+    required this.sampleFn,
+  });
 }

@@ -14,18 +14,30 @@ import 'package:pathplanner/util/wpimath/kinematics.dart';
 /// visualizing another robot's (or the same robot's) auto as a translucent
 /// reference overlay while editing a different auto.
 class GhostAuto {
-  /// Ghost colors for distinguishing up to 4 ghosts (2 local + 2 network).
+  /// Ghost colors for distinguishing up to 10 ghosts.
   static const List<Color> ghostColors = [
-    Color(0xCCFF6EC7), // Bright pink (local 1)
-    Color(0xCC00E5FF), // Bright cyan (local 2)
-    Color(0xCCAAFF00), // Lime (network 1)
-    Color(0xCCFF9100), // Orange (network 2)
+    Color(0xFFFF6EC7), // Bright pink
+    Color(0xFF00E5FF), // Bright cyan
+    Color(0xFFAAFF00), // Lime
+    Color(0xFFFF9100), // Orange
+    Color(0xFFE040FB), // Purple
+    Color(0xFF00E676), // Green
+    Color(0xFFFF5252), // Red
+    Color(0xFF40C4FF), // Light blue
+    Color(0xFFFFD740), // Amber
+    Color(0xFF7C4DFF), // Deep purple
   ];
   static const List<Color> ghostPathColors = [
-    Color(0xAAFF6EC7),
-    Color(0xAA00E5FF),
-    Color(0xAAAAFF00),
-    Color(0xAAFF9100),
+    Color(0xCEFF6EC7),
+    Color(0xCE00E5FF),
+    Color(0xCEAAFF00),
+    Color(0xCEFF9100),
+    Color(0xCEE040FB),
+    Color(0xCE00E676),
+    Color(0xCEFF5252),
+    Color(0xCE40C4FF),
+    Color(0xCEFFD740),
+    Color(0xCE7C4DFF),
   ];
 
   final String name;
