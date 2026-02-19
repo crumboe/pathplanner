@@ -57,6 +57,8 @@ https://3015rangerrobotics.github.io/pathplannerlib/PathplannerLib.json
 ---
 
 ## Ghost Auto Overlay System (Fork Addition)
+<a href="https://www.microsoft.com/en-us/p/frc-pathplanner/9nqbkb5dw909?cid=storebadge&ocid=badge&rtc=1&activetab=pivot:overviewtab"><img src="https://github.com/Cybersonics/Collaborative_Pathplanner_103_Fork/blob/main/visual.gif" height=50></a>
+&nbsp;&nbsp;&nbsp;
 
 This fork adds a **Ghost Auto Overlay System** that does not exist in the upstream [mjansen4857/pathplanner](https://github.com/mjansen4857/pathplanner) repository. It lets you visualize other robots' autonomous routines as translucent reference overlays while editing your own paths — useful for alliance coordination and avoiding on-field collisions.
 
@@ -72,9 +74,7 @@ This fork adds a **Ghost Auto Overlay System** that does not exist in the upstre
 
 5. **LAN Sync (Real-Time Multi-Peer)** — Zero-configuration peer discovery via UDP broadcast. Deterministic WebSocket connections with automatic port fallback (5811–5821). Multiple PathPlanner instances on the same network see each other's current auto as a ghost in real-time. Includes keepalive, reconnect logic, backpressure, and graceful ghost fade on disconnect.
 
-6. **Ghost UI Controls** — Per-ghost visibility toggle, pin network ghost as local on disconnect, team number / display name field with persistence, sync enable/disable toggle, manual IP:port connect dialog.
 
-7. **Visual Polish** — Waypoint robot copies rendered at reduced opacity so they don't compete with the animated preview. The animated preview robot uses a thicker outline for clear visual distinction.
 
 ### Files Added or Modified
 
@@ -94,6 +94,73 @@ This fork adds a **Ghost Auto Overlay System** that does not exist in the upstre
 
 ---
 
-## A note on AI
+### How to Use the Ghost System
 
-To be upfront, I used Github Copilot to reference, plan, and build changes for this fork. It's not 100% of the changes, but there are many areas that I let AI write, followed by reviewing and debugging.
+#### Exporting Ghosts (Sharing Your Autos)
+
+1. Open your PathPlanner project that has one or more autos with simulated trajectories.
+2. In the side hamburger menu toolbar, click **Export Ghosts**.
+3. Choose a destination folder (e.g. a shared network drive, USB stick, or a folder inside an alliance partner's project).
+4. All of your autos will be exported as `.ghostauto` files into that folder. Each file contains the trajectory, robot dimensions, and module locations.
+
+#### Importing Ghosts (Loading Another Robot's Autos)
+
+**From file picker:**
+1. Open the auto you're editing in the auto editor.
+2. On the toolbar, a download icon will say "Load Reference Auto" on hover.
+3. Select a `.ghostauto` file. The ghost will appear on the field as a color-coded overlay.
+
+**From another teams pathplanner project folder:**
+1. From the codebase of the team you are gathering ghosts from, copy the "pathplanner" folder from within "\src\main\deploy" folder onto a usb stick for transfer.
+2. In the side hamburger menu of pathplanner, click **Import Ghosts** below the settings button.
+3. select the copied "pathplanner" folder, and enter a team name. The import tool will generate all the *.ghostauto files, which can then be used as references.
+
+#### Managing Ghosts in the Editor
+
+Once ghosts are loaded, the sidebar shows a **ghost legend** with each ghost's name, team label, and color. You can:
+
+- **Toggle visibility** — Click the **eye icon** next to a ghost to hide/show it on the field without removing it.
+- **Remove a ghost** — Click the **X icon** to remove a specific local ghost.
+- **Clear all** — Click the **clear all** button to remove every ghost at once.
+- **Pin a network ghost** — If a ghost came from LAN sync and the peer disconnects, click the **push-pin icon** to convert it into a local ghost so it stays.
+
+#### Using LAN Sync (Real-Time)
+
+LAN sync lets multiple PathPlanner instances on the same network automatically discover each other and share their current auto as a ghost — no file exchange needed.
+
+1. **Enable sync** — In the auto editor sidebar, click the **sync toggle button** (antenna/broadcast icon). This starts UDP discovery on port 5810 and opens a WebSocket server on port 5811 (or the next available port up to 5821).
+2. **Set your team number** — By holding the **sync toggle button** for 2 seconds, sync options will pop up. In the sync panel, enter your team number or display name. This is how peers identify you in their ghost legend. The name persists across sessions.
+3. **Wait for peers** — As long as both instances are on the same LAN and have sync enabled, they will discover each other within a few seconds. The status indicator will change from "Searching..." to "Connected" and show the peer count.
+4. **View peer ghosts** — Once connected, whatever auto each peer has open will appear as a ghost on your field (and vice versa). When either side switches autos, the ghost updates automatically.
+5. **Manual connect** — If auto-discovery doesn't work (e.g. UDP broadcast is blocked), click the sync button's dropdown and choose **Manual Connect**. Enter the peer's IP address and port as `ip:port` (e.g. `192.168.1.42:5811`). You can find the peer's IP and port in their sync panel tooltip.
+
+#### Collision Detection
+
+When ghosts are loaded, PathPlanner automatically checks for collisions between your robot's trajectory and each ghost, and between ghost pairs. Collisions appear as **red warning circles with exclamation marks** drawn on the field at the location and time where two robots would overlap. This is based on bumper bounding-circle overlap sampled at 0.1-second intervals. Probably not a perfect representation, but it should work as a quick reference.
+
+---
+
+### LAN Sync Troubleshooting
+
+| Problem | Likely Cause | Fix |
+|---|---|---|
+| Sync stays on "Searching..." forever | UDP broadcast (port 5810) is blocked by a firewall or network policy | Add a firewall exception for PathPlanner on **UDP 5810** and **TCP 5811–5821**. On Windows, the first time you enable sync you should see a Windows Firewall prompt — click "Allow". |
+| Firewall prompt never appeared | PathPlanner was already allowed/blocked in a previous session, or a third-party firewall is intercepting | Open Windows Firewall > Allowed Apps (or your firewall's equivalent) and ensure PathPlanner is allowed on **Private** networks for both TCP and UDP. |
+| Peers discover each other but never connect | WebSocket port (5811–5821) is blocked, or one side's port is in use by another application | Check that TCP ports 5811–5821 are open. If another app is using 5811, PathPlanner will try the next port automatically, but the peer needs to be able to reach it. |
+| "Failed to connect" error on manual connect | Wrong IP or port, peer's sync is disabled, or a firewall is blocking the connection | Verify the target IP and port (shown in the peer's sync panel tooltip). Make sure the peer has sync **enabled** before you try to connect. |
+| Ghost appears then disappears after ~3 seconds | The peer disconnected or switched to an auto with no trajectory; ghosts fade after 3 seconds by default | This is normal behavior. If you want to keep the ghost, click the **push-pin icon** before it fades to convert it to a local ghost. |
+| Only works on one network but not another | Some networks (particularly school/enterprise Wi-Fi with client isolation) block traffic between devices | Use a **direct Ethernet connection** or a **simple switch/router** with no client isolation. A dumb switch between two laptops works perfectly. USB-to-Ethernet adapters are fine. |
+| Works over Ethernet but not Wi-Fi | Wi-Fi access point has AP/client isolation enabled | Disable AP isolation in router settings, or connect both machines via Ethernet instead. |
+| Both machines are on the same switch but nothing happens | Machines are on different subnets (e.g. one is 192.168.1.x, the other is 10.0.0.x) | Make sure both machines have IPs on the **same subnet**. Set static IPs if needed (e.g. both on 192.168.1.x with mask 255.255.255.0). |
+| Sync works but ghosts stutter or lag | Large trajectory data with many states; network congestion; backpressure kicking in | This is rare — the system uses backpressure to skip redundant sends. If it persists, check for other heavy network traffic on the same link. |
+| "Port already in use" error on enable | Another PathPlanner instance (or another app) is already bound to UDP 5810 on this machine | Close the other instance. If running two PathPlanner instances on the **same machine**, only one can bind UDP 5810 — use manual connect for the second instance. |
+| Peer shows wrong team name | Peer changed their display name after connecting | The name updates automatically when the peer changes it. If it doesn't, toggling sync off and on will re-sync identities. |
+| Ghost robot is the wrong size | The ghost was exported from a project with different robot dimensions | Ghost files store the exporting robot's bumper size and module locations. This is correct — it shows the *other* robot's real footprint. |
+
+---
+
+
+
+## A note on AI usage
+
+To be upfront, I (@Crumboe) worked with Github Copilot to reference, plan, and build changes for this fork. 
