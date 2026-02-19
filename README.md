@@ -57,8 +57,7 @@ https://3015rangerrobotics.github.io/pathplannerlib/PathplannerLib.json
 ---
 
 ## Ghost Auto Overlay System (Fork Addition)
-<a href="https://www.microsoft.com/en-us/p/frc-pathplanner/9nqbkb5dw909?cid=storebadge&ocid=badge&rtc=1&activetab=pivot:overviewtab"><img src="https://github.com/Cybersonics/Collaborative_Pathplanner_103_Fork/blob/main/visual.gif" height=50></a>
-&nbsp;&nbsp;&nbsp;
+![PathPlanner](https://github.com/Cybersonics/Collaborative_Pathplanner_103_Fork/blob/main/visual.gif)
 
 This fork adds a **Ghost Auto Overlay System** that does not exist in the upstream [mjansen4857/pathplanner](https://github.com/mjansen4857/pathplanner) repository. It lets you visualize other robots' autonomous routines as translucent reference overlays while editing your own paths — useful for alliance coordination and avoiding on-field collisions.
 
